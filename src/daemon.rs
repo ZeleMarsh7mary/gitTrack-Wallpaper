@@ -68,7 +68,7 @@ pub fn run() -> Result<(), String> {
     };
     let _tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_tooltip("GitWallpaper - kontribusi GitHub di desktop")
+        .with_tooltip("GitWallpaper - GitHub contributions on your desktop")
         .with_icon(icon)
         .build()
         .map_err(|e| format!("create tray icon: {e}"))?;

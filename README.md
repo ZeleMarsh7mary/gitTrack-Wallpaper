@@ -1,97 +1,103 @@
 # GitWallpaper
 
-Wallpaper kontribusi GitHub di desktop Windows. Satu binary Rust, dua mode
-(daemon tray tanpa jendela dan jendela Settings sekali-pakai), compositing
-sepenuhnya di CPU — tidak ada WebView, tidak ada `tokio`/`reqwest`, tidak ada
-overlay GPU.
+GitHub contribution wallpaper for Windows. One Rust binary, two modes (a
+windowless tray daemon and a throw-away settings window), with the whole
+compositor running on the CPU — no WebView, no `tokio`/`reqwest`, no GPU
+overlay.
 
-## Batasan yang dipegang
+## Budgets that are actually held
 
-| Batasan | Nilai | Cara dipenuhi |
+| Budget | Value | How it is met |
 |---|---|---|
-| RAM idle | < 10 MB | daemon tanpa GUI, `SetProcessWorkingSetSize` setelah setiap render |
-| GPU idle | 0% | wallpaper ditulis ke PNG lalu `SystemParametersInfoW(SPI_SETDESKWALLPAPER)`, tidak ada window/overlay |
-| Boot | tidak menyela login | fetch pertama ditunda 12 detik; wallpaper terakhir sudah tersimpan native di Windows |
-| Installer | tanpa UAC | Inno Setup `PrivilegesRequired=lowest`, ke `%LOCALAPPDATA%\Programs\GitWallpaper`, auto-start HKCU |
-| Token | tidak plaintext | Windows DPAPI (`CryptProtectData`) + entropi aplikasi, base64 di `config.toml` |
+| Idle RAM | < 10 MB | no GUI in the daemon, `SetProcessWorkingSetSize` after every render |
+| Idle GPU | 0% | the wallpaper is written to a PNG and applied with `SystemParametersInfoW(SPI_SETDESKWALLPAPER)`; no window or overlay |
+| Boot | does not fight login | the first fetch is delayed 12 s; the last wallpaper is already cached natively by Windows |
+| Installer | no UAC | Inno Setup `PrivilegesRequired=lowest` into `%LOCALAPPDATA%\Programs\GitWallpaper`, autostart under HKCU |
+| Token | never plaintext | Windows DPAPI (`CryptProtectData`) with app entropy, base64 inside `config.toml` |
 
-## Bangun & jalankan
+## Build and run
 
 ```powershell
-cargo build --release                       # target\release\git-wallpaper.exe
-cargo test                                  # 8 test, termasuk compositor headless
-cargo run --release -- --render-once out.png  # render satu wallpaper tanpa menyentuh desktop
-cargo run --release --                        # daemon + ikon tray
-cargo run --release -- --settings             # jendela pengaturan (keluar = seluruh memori kembali)
-cargo run --release -- --apply-once           # satu siklus fetch + render + set wallpaper
+cargo build --release                         # target\release\git-wallpaper.exe
+cargo test                                    # 8 tests, including the headless compositor
+cargo run --release -- --render-once out.png  # render one wallpaper without touching the desktop
+cargo run --release --                        # daemon + tray icon
+cargo run --release -- --settings             # settings window (closing it returns all memory)
+cargo run --release -- --apply-once           # one fetch + render + set-wallpaper cycle
 ```
 
 Installer:
 
 ```powershell
-iscc installer\setup.iss   # hasil: dist\GitWallpaper-0.1.0-setup.exe
+iscc installer\setup.iss   # output: dist\GitWallpaper-0.1.0-setup.exe
 ```
 
-Ikon dibuat ulang dengan `powershell -NoProfile -ExecutionPolicy Bypass -File assets\make-icon.ps1`
-(16/32/48/256 px, tanpa pustaka gambar).
+Regenerate the icon with
+`powershell -NoProfile -ExecutionPolicy Bypass -File assets\make-icon.ps1`
+(16/32/48/256 px, no imaging library).
 
-## Berkas & lokasi
+## Files and locations
 
-| Path | Isi |
+| Path | Contents |
 |---|---|
-| `%APPDATA%\GitWallpaper\config.toml` | semua pengaturan; token hanya sebagai blob DPAPI |
-| `%LOCALAPPDATA%\GitWallpaper\cache.json` | cache harian (`version`, `fetched_at`, `tz`, `days`), ditulis atomik |
-| `%LOCALAPPDATA%\GitWallpaper\current_wallpaper.png` | wallpaper hasil render terakhir |
-| `%LOCALAPPDATA%\GitWallpaper\daemon.log` | log ringkas (fetch gagal, render, ukuran PNG) |
+| `%APPDATA%\GitWallpaper\config.toml` | every setting; the token only as a DPAPI blob |
+| `%LOCALAPPDATA%\GitWallpaper\cache.json` | per-day cache (`version`, `fetched_at`, `tz`, `days`), written atomically |
+| `%LOCALAPPDATA%\GitWallpaper\current_wallpaper.png` | the most recent rendered wallpaper |
+| `%LOCALAPPDATA%\GitWallpaper\daemon.log` | one-line log (failed fetch, render, PNG size) |
 
-## Jendela Settings
+## Settings window
 
-Dua kolom bergaya Windows 11 Settings (WinUI 3 Fluent dark), 960 x 640:
+Two columns in the Windows 11 Settings style (WinUI 3 Fluent dark), 960 x 640:
 
-| Zona | Lebar | Isi |
+| Zone | Width | Contents |
 |---|---|---|
-| Kiri | 220 px | rail navigasi (row 36 px, radius 4) dengan pil aktif `#2D2D2D` + bar aksen 3 x 16 px di tepi kiri, status `Daemon: Running · Autostart: On · v0.1.0` di bawah |
-| Kanan | sisa | header halaman 26 px, hero preview desktop 320 x 180 di kiri atas, lalu deretan `SettingsRow`; hanya kolom ini yang scroll |
-| Bawah | 56 px | footer sticky: status/toast di kiri, `Test Connection` + `Save & Apply` di kanan, hairline 1 px di atasnya |
+| Left | 220 px | navigation rail (36 px rows, 4 px radius) with an active `#2D2D2D` pill plus a 3 x 16 px accent bar on the leading edge; `Daemon: Running · Autostart: On · v0.1.0` pinned at the bottom |
+| Right | remaining | 26 px page header, 320 x 180 desktop preview at the top left, then stacked `SettingsRow`s; the only scrolling column |
+| Bottom | 56 px | sticky footer: status/toast on the left, `Test Connection` + `Save & Apply` on the right, 1 px hairline above |
 
-Token desain di satu tempat: background `#202020`, row `#2B2B2B` (hover `#323232`),
-input `#222222`, hairline `Color32::from_white_alpha(14)`, aksen `#2EA043`, teks
-`#F5F5F5`, muted `#9E9E9E`. Radius 4 px untuk kontrol, 5 px untuk row, 8 px untuk
-hero preview; tombol sekunder `#353535` dengan border `#454545`, tinggi kontrol 30 px.
+Design tokens live in one place: background `#202020`, row `#2B2B2B` (hover
+`#323232`), input `#222222`, hairline `Color32::from_white_alpha(14)`, accent
+`#2EA043`, text `#F5F5F5`, muted `#9E9E9E`. Radii: 4 px for controls, 5 px for
+rows, 8 px for the preview frame; secondary buttons are `#353535` with a
+`#454545` border, control height 30 px.
 
-Caption bar natif dibuat menyatu lewat `DwmSetWindowAttribute`
-(`DWMWA_USE_IMMERSIVE_DARK_MODE`, `DWMWA_CAPTION_COLOR`, `DWMWA_BORDER_COLOR`),
-dipanggil sekali saat window dibuat; kalau OS menolak, title bar tetap default dan
-aplikasi tetap jalan.
+The native caption is blended into the app background through
+`DwmSetWindowAttribute` (`DWMWA_USE_IMMERSIVE_DARK_MODE`, `DWMWA_CAPTION_COLOR`,
+`DWMWA_BORDER_COLOR`), called once when the window is created. If the OS refuses,
+the default title bar stays and the app keeps running.
 
-Tipografi: `C:\Windows\Fonts\segoeui.ttf` sebagai font primer (fallback ke font
-bawaan egui bila berkas tidak ada) dan `consola.ttf` untuk angka/hex; ikon
-`egui-phosphor` 0.7.3 (satu-satunya versi untuk egui 0.29) di indeks 1 sehingga
-glyph teks tetap dari Segoe UI. Seluruh copy UI berbahasa Inggris.
+Typography: `C:\Windows\Fonts\segoeui.ttf` is inserted as the primary face
+(falling back to egui's bundled font when the file is missing) and `consola.ttf`
+covers numbers and hex values; icons come from `egui-phosphor` 0.7.3 (the only
+release that matches egui 0.29) inserted at index 1 so text glyphs still come
+from Segoe UI. All interface copy is English.
 
-## Arsitektur singkat
+## Architecture at a glance
 
 ```
-main.rs          argumen: daemon | --settings | --apply-once | --render-once
-config.rs        skema config, default, clamp, tulis-atomik, path
-security.rs      DPAPI encrypt/decrypt (entropi "GitWallpaper/v1")
-git_fetcher.rs   ureq: GraphQL profile + REST repo, cache offline, grid 53x7
-renderer/        Scene -> Pixmap: background | material (blur 3-pass + tint) | heatmap 53x7
+main.rs          argument router: daemon | --settings | --apply-once | --render-once
+config.rs        config schema, defaults, clamping, atomic writes, paths
+security.rs      DPAPI encrypt/decrypt (entropy "GitWallpaper/v1")
+git_fetcher.rs   ureq: GraphQL profile + REST repo, offline cache, 53x7 grid
+renderer/        Scene -> Pixmap: background | material (3-pass blur + tint) | 53x7 heatmap
 win_api.rs       SPI_SETDESKWALLPAPER, EnumDisplaySettingsW, mutex, named event, trim, HKCU Run
-daemon.rs        tray (tray-icon) + message loop + worker thread + 12s boot delay
-ui_settings.rs   eframe/egui: shell 2-kolom WinUI 3 (nav 220 / konten / footer 56), tema token, Phosphor, hero preview
+daemon.rs        tray (tray-icon) + message loop + worker thread + 12 s boot delay
+ui_settings.rs   eframe/egui: two-column WinUI 3 shell (220 nav / content / 56 footer), token theme, Phosphor, preview
 ```
 
-IPC antardua proses: named event `Local\GitWallpaperRefreshEvent` (auto-reset).
-`--settings` menulis `config.toml` lalu `SetEvent`; daemon membaca ulang config
-dan me-render. Single instance dijaga mutex `Local\GitWallpaperDaemonMutex`.
+Cross-process IPC: the auto-reset named event `Local\GitWallpaperRefreshEvent`.
+`--settings` writes `config.toml` and calls `SetEvent`; the daemon reloads the
+config and re-renders. A single instance is enforced by the mutex
+`Local\GitWallpaperDaemonMutex`.
 
-## Pemeriksaan yang sudah dijalankan
+## Checks already run
 
-- `cargo check --all-targets` bersih.
-- `cargo clippy --all-targets -- -D warnings` bersih.
-- `cargo test` — 8 test lulus (DPAPI roundtrip, parsing URL repo, grid 53x7,
-  wallpaper opaque + gradient, kotak heatmap tergambar, material mengubah piksel).
-- `--render-once` menghasilkan PNG 1920x1080 sesuai resolusi monitor.
+- `cargo check --all-targets` clean.
+- `cargo clippy --all-targets -- -D warnings` clean.
+- `cargo test` — 8 tests pass (DPAPI round trip, repository URL parsing, 53x7
+  grid, opaque wallpaper with gradient, heatmap cells drawn, material changes
+  pixels).
+- `--render-once` produces a 1920x1080 PNG matching the monitor resolution.
 
-Angka footprint idle dan hasil kompilasi installer dicatat di `AGENT_RESULT.md`.
+Idle footprint numbers and the installer build status are recorded in
+`AGENT_RESULT.md`.

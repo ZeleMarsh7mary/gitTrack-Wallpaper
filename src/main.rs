@@ -81,7 +81,7 @@ fn render_once(out: Option<&str>) -> Result<(), String> {
             let path = config::wallpaper_path();
             config::write_atomic(&path, &png)?;
             win_api::set_wallpaper(&path)?;
-            println!("wallpaper diset dari {}", path.display());
+            println!("wallpaper set from {}", path.display());
         }
     }
     Ok(())

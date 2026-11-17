@@ -35,14 +35,14 @@ RestartApplications=no
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "autostart"; Description: "Jalankan otomatis saat Windows login"; GroupDescription: "Startup:"; Flags: checkedonce
+Name: "autostart"; Description: "Start with Windows"; GroupDescription: "Startup:"; Flags: checkedonce
 
 [Files]
 Source: "{#BuildDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{userprograms}\{#AppName}\{#AppName} Settings"; Filename: "{app}\{#AppExe}"; Parameters: "--settings"; IconFilename: "{app}\{#AppExe}"
-Name: "{userprograms}\{#AppName}\Hapus {#AppName}"; Filename: "{uninstallexe}"
+Name: "{userprograms}\{#AppName}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 
 [Registry]
 ; Auto-start lives in HKCU only: the installer never needs admin.
@@ -51,9 +51,9 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 ; 1. Start the background daemon.
-Filename: "{app}\{#AppExe}"; Description: "Jalankan GitWallpaper di background"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Description: "Run GitWallpaper in the background"; Flags: nowait postinstall skipifsilent
 ; 2. Greet the user with the settings window so they can paste repo/username + token.
-Filename: "{app}\{#AppExe}"; Parameters: "--settings"; Description: "Buka Settings (isi repo/username + token)"; \
+Filename: "{app}\{#AppExe}"; Parameters: "--settings"; Description: "Open Settings (username or repository URL + token)"; \
     Flags: nowait postinstall skipifsilent
 
 [UninstallRun]

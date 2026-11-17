@@ -1,116 +1,113 @@
 # AGENT_RESULT — GitWallpaper
 
-Status per milestone, dengan angka dan perintah yang benar-benar dijalankan di
-mesin ini (Windows, Rust 1.100.0 stable MSVC, VS Build Tools 2022 + Windows SDK).
+Milestone status with the numbers and commands that were actually run on this
+machine (Windows, Rust 1.100.0 stable MSVC, VS Build Tools 2022 + Windows SDK).
 
-## Lingkungan yang dipasang lebih dulu
+## Environment installed first
 
-| Komponen | Status |
+| Component | Status |
 |---|---|
-| rustup + stable-x86_64-pc-windows-msvc 1.100.0 | terpasang (`winget install Rustlang.Rustup`, lalu `rustup default stable`) |
-| Visual Studio 2022 Build Tools, workload VCTools + Windows SDK | terpasang (`winget install Microsoft.VisualStudio.2022.BuildTools` lewat UAC) |
-| Inno Setup (`iscc`) | **tidak terpasang** — prompt UAC kedua dibatalkan, jadi installer belum dikompilasi |
+| rustup + stable-x86_64-pc-windows-msvc 1.100.0 | installed (`winget install Rustlang.Rustup`, then `rustup default stable`) |
+| Visual Studio 2022 Build Tools, VCTools workload + Windows SDK | installed (`winget install Microsoft.VisualStudio.2022.BuildTools` through UAC) |
+| Inno Setup (`iscc`) | **not installed** — the second UAC prompt was cancelled, so the installer has not been compiled |
 
-## Verifikasi kode
+## Code verification
 
 ```powershell
-cargo check --all-targets                               # bersih
-cargo clippy --all-targets -- -D warnings               # bersih
-cargo test                                              # 8 test lulus
-cargo build --release                                   # target\release\git-wallpaper.exe, 5.860.352 byte
+cargo check --all-targets                               # clean
+cargo clippy --all-targets -- -D warnings               # clean
+cargo test                                              # 8 tests pass
+cargo build --release                                   # target\release\git-wallpaper.exe, 6.413.312 bytes
 ```
 
-Test yang ada:
+Tests:
 
-- `security::tests::roundtrip`, `empty_is_empty` — DPAPI encrypt/decrypt nyata.
+- `security::tests::roundtrip`, `empty_is_empty` — real DPAPI encrypt/decrypt.
 - `git_fetcher::tests::repo_url_shapes` — `https://`, `.git/`, `git@github.com:`.
-- `git_fetcher::tests::grid_is_53x7_and_ends_with_today` — 371 slot, berakhir di hari ini.
-- `git_fetcher::tests::levels_are_relative` — level 0..4 relatif ke nilai maksimum.
-- `renderer::tests::renders_opaque_full_size_wallpaper` — 640x360, semua alpha 255, gradient atas≠bawah.
-- `renderer::tests::draws_heatmap_boxes_inside_the_card` — 12.040 piksel level-4 di area grid.
-- `renderer::tests::card_material_changes_the_backdrop` — glass mengubah piksel.
+- `git_fetcher::tests::grid_is_53x7_and_ends_with_today` — 371 slots, ending today.
+- `git_fetcher::tests::levels_are_relative` — levels 0..4 relative to the maximum.
+- `renderer::tests::renders_opaque_full_size_wallpaper` — 640x360, every alpha 255, top gradient != bottom.
+- `renderer::tests::draws_heatmap_boxes_inside_the_card` — 12,040 level-4 pixels inside the grid area.
+- `renderer::tests::card_material_changes_the_backdrop` — glass changes pixels.
 
-## Render nyata
+## Real render
 
 ```
-git-wallpaper.exe --render-once <path>   ->  render 1920x1080 -> PNG 21.936 byte (1,8 s di build debug)
-git-wallpaper.exe --render-once          ->  wallpaper diset dari %LOCALAPPDATA%\GitWallpaper\current_wallpaper.png
+git-wallpaper.exe --render-once <path>   ->  render 1920x1080 -> 21,936 byte PNG (1.8 s in a debug build)
+git-wallpaper.exe --render-once          ->  wallpaper set from %LOCALAPPDATA%\GitWallpaper\current_wallpaper.png
 ```
 
-Pemeriksaan piksel pada wallpaper yang dihasilkan (System.Drawing):
-- gradient background: pixel (5,5) = 11,18,31 dan (5,1074) = 17,37,28 → berbeda.
-- area kartu: 12.040 piksel persis `#39d353` (level 4) → grid 53x7 tergambar.
-- semua piksel opaque (alpha 255).
+Pixel checks on the produced wallpaper (System.Drawing):
+- gradient background: pixel (5,5) = 11,18,31 and (5,1074) = 17,37,28 → different.
+- card area: 12,040 pixels exactly `#39d353` (level 4) → the 53x7 grid is drawn.
+- every pixel is opaque (alpha 255).
 
-## Footprint idle (release, tanpa jendela Settings)
+## Idle footprint (release, no settings window)
 
-Perintah: `Get-Process git-wallpaper` selama 4 menit setelah 25 detik hangat.
+Command: `Get-Process git-wallpaper` over 4 minutes, starting 25 s after launch.
 
-| Metrik | Hasil |
+| Metric | Result |
 |---|---|
-| Working set | 0,91 MB (25 s, tepat setelah trim) → 2,19 MB (t+4 min) |
-| Private bytes | 4,35 MB → 3,54 MB |
+| Working set | 0.91 MB (25 s, right after the trim) → 2.19 MB (t+4 min) |
+| Private bytes | 4.35 MB → 3.54 MB |
 | Handles | 205 → 203 |
 | Threads | 7 → 4 |
-| CPU idle (60 s) | 0,052 % dari satu core |
-| GPU | tidak ada counter GPU non-nol untuk pid ini |
+| Idle CPU (60 s) | 0.052 % of one core |
+| GPU | no non-zero GPU engine counter for this pid |
 
-Catatan kejujuran: working set *naik* 1,28 MB antara sampel pertama dan
-t+4 menit. Itu page-fault-in setelah `SetProcessWorkingSetSize` memangkas
-halaman, bukan kebocoran — private bytes pada rentang yang sama justru turun
-0,80 MB. Angka 2,19 MB masih jauh di bawah batas 10 MB.
+Honest note: the working set *grew* 1.28 MB between the first sample and
+t+4 min. That is page fault-in after `SetProcessWorkingSetSize` trimmed pages,
+not a leak — private bytes over the same window fell 0.80 MB. 2.19 MB is still
+well under the 10 MB budget.
 
-Jendela Settings: proses terpisah, `MainWindowTitle = "GitWallpaper Settings"`,
-WS 134,9 MB selama terbuka, dan proses hilang sepenuhnya setelah ditutup
-(`process exists: False`) — sesuai desain "GUI sekali pakai".
+## GitHub data
 
-## Data GitHub
+A real fetch was run against `https://github.com/rust-lang/rust` and GitHub
+rejected it: `HTTP 403 rate limit exceeded` (no token; this machine's IP had
+already used the 60/hour quota). The fallback path works: the reason is logged,
+the cache is used when present, and the wallpaper is still rendered. For real
+data, enter a personal access token in Settings (required for Profile mode,
+recommended for Repository).
 
-Fetch asli dijalankan terhadap `https://github.com/rust-lang/rust` dan ditolak
-GitHub: `HTTP 403 rate limit exceeded` (tanpa token, IP mesin ini sudah
-menghabiskan kuota 60/jam). Jalur fallback bekerja: pesan masuk log, cache
-dipakai bila ada, wallpaper tetap dirender. Untuk data sungguhan, isi
-Personal Access Token di Settings (wajib untuk mode Profile, disarankan untuk
-Repository).
+## Settings window (WinUI 3 redesign)
 
-## Jendela Settings (redesign WinUI 3)
+Measured from the process that was actually running (`--settings`, window
+screenshot plus `GetWindowRect`/`GetClientRect`/`GetPixel`):
 
-Diukur dari proses yang benar-benar berjalan (`--settings`, screenshot jendela +
-`GetWindowRect`/`GetClientRect`/`GetPixel`):
-
-| Cek | Hasil |
+| Check | Result |
 |---|---|
-| Client area | **960 x 640** (diminta 960x640), window 976x679 termasuk border |
-| Maximized? | tidak — 976 px dari layar 1920 px |
-| Caption bar | piksel (200,6) = `#202020` → `DwmSetWindowAttribute` (immersive dark + caption color) berlaku |
-| Rail kiri (220 px) | piksel (30,300) = `#202020` |
-| Background konten | piksel (300,635) = `#202020` |
-| Settings row | piksel (500,320..560) = `#2B2B2B`, teks `#9B9B9B` di y=440 |
-| Pil navigasi aktif | 6.307 piksel `#2D2D2D` di rail, 98 piksel aksen termasuk bar 3x16 px |
-| Hero preview 320x180 | area x≈256-576, y≈120-260 berisi warna wallpaper (`#295966`, `#37494E`) |
-| Tombol Save & Apply | piksel (930,630) = `#2EA043` |
-| Memori saat terbuka | 90,0 MB working set |
-| Tutup jendela | proses hilang sepenuhnya (`closed cleanly: True`) |
+| Client area | **960 x 640** (requested 960x640); window 976x679 including the border |
+| Maximized? | no — 976 px of a 1920 px screen |
+| Caption bar | pixel (200,6) = `#202020` → `DwmSetWindowAttribute` (immersive dark + caption color) took effect |
+| Left rail (220 px) | pixel (30,300) = `#202020` |
+| Content background | pixel (300,635) = `#202020` |
+| Settings rows | pixels (500,320..560) = `#2B2B2B`; text `#9B9B9B` at y=440 |
+| Active navigation pill | 6,307 pixels of `#2D2D2D` in the rail, 98 accent pixels including the 3x16 px bar |
+| Hero preview 320x180 | area x≈256-576, y≈120-260 holds wallpaper colors (`#295966`, `#37494E`) |
+| Save & Apply button | pixel (930,630) = `#2EA043` |
+| Memory while open | 90.0 MB working set |
+| Closing the window | process disappears completely (`closed cleanly: True`) |
 
-`cargo check --all-targets`, `cargo clippy --all-targets -- -D warnings`, dan
-`cargo test` (8 lulus) dijalankan ulang setelah redesign: bersih, tanpa warning.
-Copy UI diterjemahkan penuh ke bahasa Inggris, termasuk pesan error dari
-`git_fetcher` dan `security` yang tampil di toast.
+`cargo check --all-targets`, `cargo clippy --all-targets -- -D warnings` and
+`cargo test` (8 passing) were re-run after the redesign: clean, no warnings.
+All interface copy is English, including the `git_fetcher` and `security` error
+strings that surface in the toast.
 
-## Yang belum diverifikasi
+## Not verified
 
-- **Installer belum dikompilasi.** `installer/setup.iss` ditulis lengkap
-  (`PrivilegesRequired=lowest`, Run key HKCU, autostart task, uninstall bersih)
-  tetapi `iscc` tidak ada di mesin ini. Setelah `winget install JRSoftware.InnoSetup`
-  (butuh satu klik UAC), jalankan `iscc installer\setup.iss` → `dist\GitWallpaper-0.1.0-setup.exe`.
-  Klaim "1-click install terbukti" karena itu **tidak** dibuat di laporan ini.
-- Auto-start belum diuji lewat reboot; hanya `HKCU\...\Run` yang ditulis/dibaca
-  (diverifikasi lewat registry read-back di UI).
-- Tray menu (Refresh Now / Settings / Exit) belum diklik secara otomatis —
-  yang terverifikasi: proses daemon hidup dengan message loop, ikon tray
-  berhasil dibuat (kegagalan `TrayIconBuilder` akan menghentikan proses), dan
-  worker me-render sesuai jadwal 12 detik.
-- Multi-monitor: hanya monitor primer (`EnumDisplaySettingsW`) yang dipakai.
-- Wallpaper asli pengguna sebelum aplikasi ini dijalankan tidak dicatat;
-  `HKCU\Control Panel\Desktop\Wallpaper` sekarang menunjuk ke
+- **The installer has not been compiled.** `installer/setup.iss` is complete
+  (`PrivilegesRequired=lowest`, HKCU Run key, autostart task, clean uninstall)
+  but `iscc` is missing on this machine. After
+  `winget install JRSoftware.InnoSetup` (one UAC click), run
+  `iscc installer\setup.iss` → `dist\GitWallpaper-0.1.0-setup.exe`. No claim of
+  a proven one-click install is made in this report.
+- Autostart has not been tested across a reboot; only the `HKCU\...\Run` value
+  is written and read back (verified through the registry read-back in the UI).
+- The tray menu (Refresh Now / Settings / Exit) was not clicked automatically.
+  What is verified: the daemon process stays alive with its message loop, the
+  tray icon was created (a `TrayIconBuilder` failure would end the process), and
+  the worker renders on the 12 s schedule.
+- Multi-monitor: only the primary display (`EnumDisplaySettingsW`) is used.
+- The user's previous wallpaper was not recorded before this app ran;
+  `HKCU\Control Panel\Desktop\Wallpaper` now points at
   `%LOCALAPPDATA%\GitWallpaper\current_wallpaper.png`.
