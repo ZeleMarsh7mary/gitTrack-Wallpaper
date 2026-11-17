@@ -1,0 +1,60 @@
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write # action-gh-release needs this, the default token is read-only
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/settings-ui/ui/package-lock.json
+
+      - name: Build settings frontend
+        working-directory: crates/settings-ui/ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Test
+        run: cargo test --all-targets
+
+      - name: Build binaries
+        run: cargo build --release
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = @(
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc "installer\setup.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            target/release/git-track-wallpaper.exe
+            target/release/git-track-wallpaper-settings.exe
+          body_path: CHANGELOG.md

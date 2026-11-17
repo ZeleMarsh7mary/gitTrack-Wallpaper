@@ -1,5 +1,19 @@
-/target
-/dist
-/crates/settings-ui/ui/dist
-/crates/settings-ui/ui/node_modules
-/crates/settings-ui/gen/schemas
+# Rust build output
+/target/
+**/*.rs.bk
+
+# Installer output and binaries
+/dist/
+*.exe
+*.msi
+*.pdb
+
+# Settings frontend
+/crates/settings-ui/ui/dist/
+/crates/settings-ui/ui/node_modules/
+/crates/settings-ui/gen/schemas/
+
+# Local runtime state and secrets
+config.toml
+cache.json
+.env
