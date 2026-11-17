@@ -73,28 +73,29 @@ dipakai bila ada, wallpaper tetap dirender. Untuk data sungguhan, isi
 Personal Access Token di Settings (wajib untuk mode Profile, disarankan untuk
 Repository).
 
-## Jendela Settings (rombakan UI)
+## Jendela Settings (redesign WinUI 3)
 
 Diukur dari proses yang benar-benar berjalan (`--settings`, screenshot jendela +
 `GetWindowRect`/`GetClientRect`/`GetPixel`):
 
 | Cek | Hasil |
 |---|---|
-| Client area | **1040 x 660** (diminta 1040x660), window 1056x699 termasuk border |
-| Maximized? | tidak — 1056 px dari layar 1920 px |
-| Rail kiri (190 px) | piksel (30,400) = `#1F1F24` (surface) |
-| Background tengah | piksel (300,659) = `#16161A` |
-| Panel pratinjau (380 px) | mulai x≈669; piksel di dalam pratinjau = warna wallpaper (`#55786C`), 2.881 warna berbeda di area pratinjau |
-| Aksen `#2EA043` | 3.044 piksel (1/4 sampling): rail aktif, tombol Save & Apply, ring pilihan |
-| Tipografi | glyph teks muncul di rail (px 56-131 pada y=60) → `segoeui.ttf` termuat, bukan font bawaan egui |
-| Memori saat terbuka | 100,0 MB working set |
+| Client area | **960 x 640** (diminta 960x640), window 976x679 termasuk border |
+| Maximized? | tidak — 976 px dari layar 1920 px |
+| Caption bar | piksel (200,6) = `#202020` → `DwmSetWindowAttribute` (immersive dark + caption color) berlaku |
+| Rail kiri (220 px) | piksel (30,300) = `#202020` |
+| Background konten | piksel (300,635) = `#202020` |
+| Settings row | piksel (500,320..560) = `#2B2B2B`, teks `#9B9B9B` di y=440 |
+| Pil navigasi aktif | 6.307 piksel `#2D2D2D` di rail, 98 piksel aksen termasuk bar 3x16 px |
+| Hero preview 320x180 | area x≈256-576, y≈120-260 berisi warna wallpaper (`#295966`, `#37494E`) |
+| Tombol Save & Apply | piksel (930,630) = `#2EA043` |
+| Memori saat terbuka | 90,0 MB working set |
 | Tutup jendela | proses hilang sepenuhnya (`closed cleanly: True`) |
 
-Batas kolom yang terdeteksi pada baris y=60: rail 0-190, konten 197-668, pratinjau
-669-1056 — sesuai desain 190 / sisa / 380.
-
 `cargo check --all-targets`, `cargo clippy --all-targets -- -D warnings`, dan
-`cargo test` (8 lulus) dijalankan ulang setelah perubahan UI: bersih, tanpa warning.
+`cargo test` (8 lulus) dijalankan ulang setelah redesign: bersih, tanpa warning.
+Copy UI diterjemahkan penuh ke bahasa Inggris, termasuk pesan error dari
+`git_fetcher` dan `security` yang tampil di toast.
 
 ## Yang belum diverifikasi
 

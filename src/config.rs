@@ -13,11 +13,26 @@ pub const CACHE_VERSION: u32 = 1;
 
 /// Built-in heatmap palettes: (name, [level0..level4]).
 pub const PALETTES: &[(&str, [&str; 5])] = &[
-    ("GitHub Dark", ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"]),
-    ("GitHub Light", ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"]),
-    ("Dracula", ["#21222c", "#3a3f58", "#6272a4", "#bd93f9", "#ff79c6"]),
-    ("Monochrome", ["#1b1b1b", "#3d3d3d", "#6b6b6b", "#9d9d9d", "#f0f0f0"]),
-    ("Neon", ["#101820", "#0b3d2e", "#128a5a", "#22d38a", "#8affc1"]),
+    (
+        "GitHub Dark",
+        ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"],
+    ),
+    (
+        "GitHub Light",
+        ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"],
+    ),
+    (
+        "Dracula",
+        ["#21222c", "#3a3f58", "#6272a4", "#bd93f9", "#ff79c6"],
+    ),
+    (
+        "Monochrome",
+        ["#1b1b1b", "#3d3d3d", "#6b6b6b", "#9d9d9d", "#f0f0f0"],
+    ),
+    (
+        "Neon",
+        ["#101820", "#0b3d2e", "#128a5a", "#22d38a", "#8affc1"],
+    ),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,17 +195,13 @@ pub struct Config {
 impl Config {
     /// Clamp every user-editable number into its documented range.
     pub fn sanitize(&mut self) {
-        self.source.refresh_interval_minutes =
-            self.source.refresh_interval_minutes.clamp(5, 1440);
+        self.source.refresh_interval_minutes = self.source.refresh_interval_minutes.clamp(5, 1440);
         self.card.opacity = self.card.opacity.clamp(0.0, 1.0);
         self.card.blur_radius = self.card.blur_radius.clamp(0.0, 50.0);
         self.card.corner_radius = self.card.corner_radius.clamp(0.0, 80.0);
         self.track.box_size = self.track.box_size.clamp(6.0, 40.0);
         self.track.box_gap = self.track.box_gap.clamp(0.0, 12.0);
-        self.track.box_radius = self
-            .track
-            .box_radius
-            .clamp(0.0, self.track.box_size / 2.0);
+        self.track.box_radius = self.track.box_radius.clamp(0.0, self.track.box_size / 2.0);
         for c in &mut self.track.colors {
             if parse_hex(c).is_none() {
                 *c = "#161b22".into();
@@ -218,7 +229,7 @@ impl Config {
                 }
                 Err(e) => (
                     Config::default(),
-                    Some(format!("config.toml tidak terbaca: {e}")),
+                    Some(format!("could not parse config.toml: {e}")),
                 ),
             },
             Err(_) => (Config::default(), None),
@@ -227,7 +238,7 @@ impl Config {
 
     pub fn save(&self) -> Result<(), String> {
         let dir = appdata_dir();
-        fs::create_dir_all(&dir).map_err(|e| format!("buat {}: {e}", dir.display()))?;
+        fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
         let text = toml::to_string_pretty(self).map_err(|e| format!("serialize config: {e}"))?;
         write_atomic(&config_path(), text.as_bytes())
     }
@@ -259,7 +270,11 @@ pub fn to_hex(rgb: u32) -> String {
 
 pub fn rgb(hex: &str, fallback: u32) -> (u8, u8, u8) {
     let v = parse_hex(hex).unwrap_or(fallback);
-    (((v >> 16) & 0xff) as u8, ((v >> 8) & 0xff) as u8, (v & 0xff) as u8)
+    (
+        ((v >> 16) & 0xff) as u8,
+        ((v >> 8) & 0xff) as u8,
+        (v & 0xff) as u8,
+    )
 }
 
 fn env_dir(var: &str) -> PathBuf {
@@ -291,12 +306,12 @@ pub fn wallpaper_path() -> PathBuf {
 /// Write via a sibling temp file + rename so a crash never truncates the target.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("buat {}: {e}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
     }
     let tmp = path.with_extension(format!(
         "{}.tmp",
         path.extension().and_then(|e| e.to_str()).unwrap_or("data")
     ));
-    fs::write(&tmp, bytes).map_err(|e| format!("tulis {}: {e}", tmp.display()))?;
+    fs::write(&tmp, bytes).map_err(|e| format!("write {}: {e}", tmp.display()))?;
     fs::rename(&tmp, path).map_err(|e| format!("rename {}: {e}", path.display()))
 }

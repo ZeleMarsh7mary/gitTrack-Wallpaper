@@ -7,13 +7,17 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::{
     CloseHandle, GetLastError, LocalFree, ERROR_ALREADY_EXISTS, HANDLE, HLOCAL, WAIT_OBJECT_0,
 };
+use windows::Win32::Graphics::Dwm::{
+    DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
+};
 use windows::Win32::Graphics::Gdi::{EnumDisplaySettingsW, DEVMODEW, ENUM_CURRENT_SETTINGS};
 use windows::Win32::System::Threading::{
     CreateEventW, CreateMutexW, GetCurrentProcess, OpenEventW, SetEvent, SetProcessWorkingSetSize,
     WaitForSingleObject, EVENT_MODIFY_STATE, INFINITE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    SystemParametersInfoW, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER,
+    FindWindowW, GetWindowThreadProcessId, SystemParametersInfoW, SPIF_SENDCHANGE,
+    SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER,
 };
 
 pub const MUTEX_NAME: &str = "Local\\GitWallpaperDaemonMutex";
@@ -137,7 +141,11 @@ pub fn signal_refresh_event() -> bool {
 impl NamedEvent {
     /// Sleep until signalled or the timeout expires. Returns true when signalled.
     pub fn wait(&self, timeout_ms: u32) -> bool {
-        let ms = if timeout_ms == u32::MAX { INFINITE } else { timeout_ms };
+        let ms = if timeout_ms == u32::MAX {
+            INFINITE
+        } else {
+            timeout_ms
+        };
         unsafe { WaitForSingleObject(self.0, ms) == WAIT_OBJECT_0 }
     }
 }
@@ -148,7 +156,7 @@ pub fn set_start_with_windows(exe: &Path, enabled: bool) -> Result<(), String> {
     let key = if enabled {
         windows_registry::CURRENT_USER
             .create(RUN_KEY)
-            .map_err(|e| format!("buka {RUN_KEY}: {e}"))?
+            .map_err(|e| format!("open {RUN_KEY}: {e}"))?
     } else {
         match windows_registry::CURRENT_USER.open(RUN_KEY) {
             Ok(k) => k,
@@ -158,7 +166,7 @@ pub fn set_start_with_windows(exe: &Path, enabled: bool) -> Result<(), String> {
     if enabled {
         let value = format!("\"{}\"", exe.display());
         key.set_string(RUN_VALUE, value)
-            .map_err(|e| format!("tulis Run value: {e}"))
+            .map_err(|e| format!("write Run value: {e}"))
     } else {
         match key.remove_value(RUN_VALUE) {
             Ok(()) => Ok(()),
@@ -181,4 +189,54 @@ pub fn local_free(ptr: *mut u8) {
             LocalFree(Some(HLOCAL(ptr as *mut c_void)));
         }
     }
+}
+
+/// Paint the native caption dark and blend it into the app background.
+///
+/// Best effort: a missing window or an OS without DWMWA_CAPTION_COLOR (pre
+/// Windows 11) leaves the default title bar, which is still usable.
+pub fn apply_dark_titlebar(title: &str, background: u32) -> Result<(), String> {
+    let wide_title = to_wide(title);
+    let hwnd = unsafe { FindWindowW(PCWSTR::null(), PCWSTR(wide_title.as_ptr())) }
+        .map_err(|e| format!("FindWindowW: {e}"))?;
+
+    // Never touch a window that is not ours.
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    if pid != std::process::id() {
+        return Err("top-level window belongs to another process".into());
+    }
+
+    let dark: i32 = 1;
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &dark as *const i32 as *const c_void,
+            std::mem::size_of::<i32>() as u32,
+        )
+    }
+    .map_err(|e| format!("DWMWA_USE_IMMERSIVE_DARK_MODE: {e}"))?;
+
+    // COLORREF is 0x00BBGGRR; the palette value is 0xRRGGBB, so swap R and B.
+    let color =
+        ((background & 0x0000ff) << 16) | (background & 0x00ff00) | ((background & 0xff0000) >> 16);
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CAPTION_COLOR,
+            &color as *const u32 as *const c_void,
+            std::mem::size_of::<u32>() as u32,
+        )
+    }
+    .map_err(|e| format!("DWMWA_CAPTION_COLOR: {e}"))?;
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR,
+            &color as *const u32 as *const c_void,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+    Ok(())
 }

@@ -4,7 +4,9 @@
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use windows::core::PCWSTR;
-use windows::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB};
+use windows::Win32::Security::Cryptography::{
+    CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB,
+};
 
 const ENTROPY: &[u8] = b"GitWallpaper/v1";
 
@@ -49,7 +51,7 @@ pub fn encrypt(plain: &str) -> Result<String, String> {
     .map_err(|e| format!("CryptProtectData: {e}"))?;
     let out = take_blob(blob_out);
     if out.is_empty() {
-        return Err("CryptProtectData mengembalikan blob kosong".into());
+        return Err("CryptProtectData returned an empty blob".into());
     }
     Ok(STANDARD.encode(out))
 }
@@ -66,11 +68,19 @@ pub fn decrypt(b64: &str) -> Result<String, String> {
     let blob_entropy = blob_from(&mut entropy);
     let mut blob_out = CRYPT_INTEGER_BLOB::default();
     unsafe {
-        CryptUnprotectData(&blob_in, None, Some(&blob_entropy), None, None, 0, &mut blob_out)
+        CryptUnprotectData(
+            &blob_in,
+            None,
+            Some(&blob_entropy),
+            None,
+            None,
+            0,
+            &mut blob_out,
+        )
     }
     .map_err(|e| format!("CryptUnprotectData: {e}"))?;
     let out = take_blob(blob_out);
-    String::from_utf8(out).map_err(|e| format!("token bukan UTF-8: {e}"))
+    String::from_utf8(out).map_err(|e| format!("token is not valid UTF-8: {e}"))
 }
 
 #[cfg(test)]

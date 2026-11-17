@@ -46,23 +46,28 @@ Ikon dibuat ulang dengan `powershell -NoProfile -ExecutionPolicy Bypass -File as
 
 ## Jendela Settings
 
-Tiga zona, bukan satu kolom:
+Dua kolom bergaya Windows 11 Settings (WinUI 3 Fluent dark), 960 x 640:
 
 | Zona | Lebar | Isi |
 |---|---|---|
-| Kiri | 190 px | rail navigasi dengan ikon Phosphor + badge status Daemon & Autostart |
-| Tengah | sisa | form vertikal di dalam kartu; satu-satunya area yang scroll |
-| Kanan | 380 px | pratinjau langsung dalam bingkai monitor + info ukuran/posisi + tombol Test/Save di footer |
+| Kiri | 220 px | rail navigasi (row 36 px, radius 4) dengan pil aktif `#2D2D2D` + bar aksen 3 x 16 px di tepi kiri, status `Daemon: Running · Autostart: On · v0.1.0` di bawah |
+| Kanan | sisa | header halaman 26 px, hero preview desktop 320 x 180 di kiri atas, lalu deretan `SettingsRow`; hanya kolom ini yang scroll |
+| Bawah | 56 px | footer sticky: status/toast di kiri, `Test Connection` + `Save & Apply` di kanan, hairline 1 px di atasnya |
 
-Tema adalah token di satu tempat, bukan `Visuals::dark()`: background `#16161A`,
-surface kartu `#1F1F24`, border `#2D2D35`, input `#111114`, aksen `#2EA043`,
-teks `#E6E6EA`, muted `#8B8B93`. Radius: jendela 12, kartu 10, input/tombol 6.
-`item_spacing` 12/10, `button_padding` 14/8, tinggi kontrol 32 px.
+Token desain di satu tempat: background `#202020`, row `#2B2B2B` (hover `#323232`),
+input `#222222`, hairline `Color32::from_white_alpha(14)`, aksen `#2EA043`, teks
+`#F5F5F5`, muted `#9E9E9E`. Radius 4 px untuk kontrol, 5 px untuk row, 8 px untuk
+hero preview; tombol sekunder `#353535` dengan border `#454545`, tinggi kontrol 30 px.
 
-Tipografi: `C:\Windows\Fonts\segoeui.ttf` disisipkan sebagai font primer
-(fallback ke font bawaan egui bila berkas tidak ada) dan `consola.ttf` untuk
-angka/hex; ikon dari `egui-phosphor` 0.7.3 (cocok dengan egui 0.29) di indeks 1
-sehingga glyph teks tetap dari Segoe UI.
+Caption bar natif dibuat menyatu lewat `DwmSetWindowAttribute`
+(`DWMWA_USE_IMMERSIVE_DARK_MODE`, `DWMWA_CAPTION_COLOR`, `DWMWA_BORDER_COLOR`),
+dipanggil sekali saat window dibuat; kalau OS menolak, title bar tetap default dan
+aplikasi tetap jalan.
+
+Tipografi: `C:\Windows\Fonts\segoeui.ttf` sebagai font primer (fallback ke font
+bawaan egui bila berkas tidak ada) dan `consola.ttf` untuk angka/hex; ikon
+`egui-phosphor` 0.7.3 (satu-satunya versi untuk egui 0.29) di indeks 1 sehingga
+glyph teks tetap dari Segoe UI. Seluruh copy UI berbahasa Inggris.
 
 ## Arsitektur singkat
 
@@ -74,7 +79,7 @@ git_fetcher.rs   ureq: GraphQL profile + REST repo, cache offline, grid 53x7
 renderer/        Scene -> Pixmap: background | material (blur 3-pass + tint) | heatmap 53x7
 win_api.rs       SPI_SETDESKWALLPAPER, EnumDisplaySettingsW, mutex, named event, trim, HKCU Run
 daemon.rs        tray (tray-icon) + message loop + worker thread + 12s boot delay
-ui_settings.rs   eframe/egui: shell 3-zona (nav 190 / form / preview 380), tema token, Phosphor, pratinjau langsung
+ui_settings.rs   eframe/egui: shell 2-kolom WinUI 3 (nav 220 / konten / footer 56), tema token, Phosphor, hero preview
 ```
 
 IPC antardua proses: named event `Local\GitWallpaperRefreshEvent` (auto-reset).

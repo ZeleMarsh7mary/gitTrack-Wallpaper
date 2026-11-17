@@ -22,11 +22,7 @@ static FONT_DATA: OnceLock<Option<Vec<u8>>> = OnceLock::new();
 
 fn font_bytes() -> Option<&'static [u8]> {
     FONT_DATA
-        .get_or_init(|| {
-            FONT_CANDIDATES
-                .iter()
-                .find_map(|p| std::fs::read(p).ok())
-        })
+        .get_or_init(|| FONT_CANDIDATES.iter().find_map(|p| std::fs::read(p).ok()))
         .as_deref()
 }
 
@@ -56,7 +52,13 @@ pub fn draw(pm: &mut Pixmap, scene: &Scene<'_>, l: &Layout) {
             continue;
         };
         paint.set_color(colors[level]);
-        pm.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+        pm.fill_path(
+            &path,
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            None,
+        );
     }
 
     if scene.config.track.show_stats_header && l.header_h > 0.0 {

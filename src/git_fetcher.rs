@@ -9,7 +9,7 @@ use std::time::Duration;
 use chrono::{DateTime, Datelike, Duration as ChronoDuration, Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 
-use crate::config::{cache_path, write_atomic, Config, CACHE_VERSION, SourceMode};
+use crate::config::{cache_path, write_atomic, Config, SourceMode, CACHE_VERSION};
 use crate::security;
 
 pub const SLOTS: usize = 53 * 7;
@@ -80,7 +80,8 @@ fn level_for(count: u32, max: u32) -> u8 {
 /// Project per-day counts onto a Sunday-aligned 53x7 grid ending this week.
 pub fn build_grid(events: &HashMap<NaiveDate, u32>) -> Vec<DayStat> {
     let today = Local::now().date_naive();
-    let sunday_this_week = today - ChronoDuration::days(today.weekday().num_days_from_sunday() as i64);
+    let sunday_this_week =
+        today - ChronoDuration::days(today.weekday().num_days_from_sunday() as i64);
     let start = sunday_this_week - ChronoDuration::days(52 * 7);
     let max = events.values().copied().max().unwrap_or(0);
 
@@ -104,7 +105,7 @@ pub fn build_grid(events: &HashMap<NaiveDate, u32>) -> Vec<DayStat> {
 fn fetch_profile(user: &str, token: &str) -> Result<Vec<DayStat>, String> {
     if token.trim().is_empty() {
         return Err(
-            "profile mode butuh Personal Access Token (GraphQL GitHub mewajibkannya)".into(),
+            "profile mode needs a personal access token (GitHub GraphQL requires one)".into(),
         );
     }
     const QUERY: &str = "query($login:String!){user(login:$login){contributionsCollection{contributionCalendar{weeks{contributionDays{date contributionCount}}}}}}";
@@ -138,7 +139,7 @@ fn fetch_profile(user: &str, token: &str) -> Result<Vec<DayStat>, String> {
     let weeks = value
         .pointer("/data/user/contributionsCollection/contributionCalendar/weeks")
         .and_then(|v| v.as_array())
-        .ok_or_else(|| format!("respons GraphQL tanpa data user '{user}' (username salah?)"))?;
+        .ok_or_else(|| format!("GraphQL response has no user '{user}' (wrong username?)"))?;
 
     let mut events: HashMap<NaiveDate, u32> = HashMap::new();
     for week in weeks {
@@ -186,9 +187,9 @@ fn fetch_repository(owner: &str, repo: &str, token: Option<&str>) -> Result<Vec<
             Err(ureq::Error::Status(409, _)) => break, // empty repository
             Err(ureq::Error::Status(code, r)) => {
                 let hint = if code == 404 {
-                    " (repo tidak ada / privat tanpa token)"
+                    " (repo missing, or private without a token)"
                 } else if code == 403 {
-                    " (rate limit / butuh token)"
+                    " (rate limit or token required)"
                 } else {
                     ""
                 };
@@ -232,18 +233,18 @@ pub fn token_of(cfg: &Config) -> Result<String, String> {
 /// see [`resolve`] for that.
 pub fn fetch(cfg: &Config) -> Result<Vec<DayStat>, String> {
     if cfg.source.input_target.trim().is_empty() {
-        return Err("target GitHub belum diisi (buka Settings)".into());
+        return Err("no GitHub target configured (open Settings)".into());
     }
     let token = token_of(cfg)?;
     match cfg.source.mode {
         SourceMode::Profile => {
             let user = parse_username(&cfg.source.input_target)
-                .ok_or_else(|| "username GitHub tidak valid".to_string())?;
+                .ok_or_else(|| "invalid GitHub username".to_string())?;
             fetch_profile(&user, &token)
         }
         SourceMode::Repository => {
             let (owner, repo) = parse_repo_url(&cfg.source.input_target)
-                .ok_or_else(|| "URL repository tidak valid".to_string())?;
+                .ok_or_else(|| "invalid repository URL".to_string())?;
             fetch_repository(&owner, &repo, Some(token.as_str()))
         }
     }

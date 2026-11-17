@@ -57,7 +57,11 @@ pub fn stats_of(days: &[DayStat]) -> Stats {
             break;
         }
     }
-    Stats { total, best_day, streak }
+    Stats {
+        total,
+        best_day,
+        streak,
+    }
 }
 
 pub fn layout(scene: &Scene<'_>) -> Layout {
@@ -132,8 +136,7 @@ pub fn render(scene: &Scene<'_>) -> Result<Pixmap, String> {
 /// Convenience for the daemon: render the scene, then hand back PNG bytes.
 pub fn render_png(scene: &Scene<'_>) -> Result<Vec<u8>, String> {
     let pm = render(scene)?;
-    pm.encode_png()
-        .map_err(|e| format!("encode_png: {e}"))
+    pm.encode_png().map_err(|e| format!("encode_png: {e}"))
 }
 
 #[cfg(test)]

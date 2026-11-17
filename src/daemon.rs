@@ -14,7 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::config::{self, Config};
-use crate::renderer::{Scene, render_png};
+use crate::renderer::{render_png, Scene};
 use crate::win_api;
 
 /// Windows is still busy logging in; do not race it for network or disk.
@@ -60,23 +60,18 @@ pub fn run() -> Result<(), String> {
     let exit_item = MenuItem::with_id(exit_id.clone(), "Exit", true, None);
     let separator = PredefinedMenuItem::separator();
     let menu = Menu::new();
-    menu.append_items(&[
-        &refresh_item,
-        &settings_item,
-        &separator,
-        &exit_item,
-    ])
-    .map_err(|e| format!("bangun tray menu: {e}"))?;
+    menu.append_items(&[&refresh_item, &settings_item, &separator, &exit_item])
+        .map_err(|e| format!("build tray menu: {e}"))?;
 
     let Some(icon) = tray_icon_image() else {
-        return Err("ikon tray gagal dibuat".into());
+        return Err("could not create the tray icon".into());
     };
     let _tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
         .with_tooltip("GitWallpaper - kontribusi GitHub di desktop")
         .with_icon(icon)
         .build()
-        .map_err(|e| format!("buat tray icon: {e}"))?;
+        .map_err(|e| format!("create tray icon: {e}"))?;
 
     unsafe {
         // Thread-scoped timer so the blocking GetMessageW wakes up regularly and
@@ -118,7 +113,7 @@ pub fn run() -> Result<(), String> {
 
 fn open_settings() {
     let Ok(exe) = std::env::current_exe() else {
-        log_line("current_exe gagal; tidak bisa membuka Settings");
+        log_line("current_exe failed; cannot open Settings");
         return;
     };
     if let Err(e) = std::process::Command::new(exe).arg("--settings").spawn() {
@@ -128,7 +123,7 @@ fn open_settings() {
 
 fn worker_loop(running: Arc<AtomicBool>) {
     let Some(event) = win_api::create_refresh_event() else {
-        log_line("CreateEventW gagal; worker berhenti");
+        log_line("CreateEventW failed; worker stopped");
         return;
     };
     let (cfg0, _) = Config::load_or_default();
@@ -162,14 +157,14 @@ fn worker_loop(running: Arc<AtomicBool>) {
         refresh_once(&cfg);
         win_api::trim_working_set();
     }
-    log_line("worker berhenti");
+    log_line("worker stopped");
 }
 
 /// One full cycle: fetch (or cache), composite, write, set wallpaper.
 pub fn refresh_once(cfg: &Config) {
     let (days, err) = crate::git_fetcher::resolve(cfg);
     if let Some(e) = err {
-        log_line(&format!("fetch gagal, pakai cache: {e}"));
+        log_line(&format!("fetch failed, using cache: {e}"));
     }
     let (w, h) = win_api::primary_monitor_size();
     let scene = Scene {
@@ -184,7 +179,7 @@ pub fn refresh_once(cfg: &Config) {
             match config::write_atomic(&path, &png) {
                 Ok(()) => match win_api::set_wallpaper(&path) {
                     Ok(()) => log_line(&format!(
-                        "wallpaper diperbarui {}x{} ({} hari, {} byte png)",
+                        "wallpaper updated {}x{} ({} days, {} byte png)",
                         w,
                         h,
                         days.len(),
@@ -192,7 +187,7 @@ pub fn refresh_once(cfg: &Config) {
                     )),
                     Err(e) => log_line(&format!("set wallpaper: {e}")),
                 },
-                Err(e) => log_line(&format!("tulis wallpaper: {e}")),
+                Err(e) => log_line(&format!("write wallpaper: {e}")),
             }
         }
         Err(e) => log_line(&format!("render: {e}")),

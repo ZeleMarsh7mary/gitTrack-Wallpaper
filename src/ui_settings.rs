@@ -1,8 +1,10 @@
-//! `--settings` window: a separate, short-lived process (eframe/egui).
+//! `--settings` window: a short-lived eframe/egui process styled after the
+//! Windows 11 Settings app (WinUI 3 Fluent dark).
 //!
-//! Shell layout, outside-in: left navigation rail (190 px) -> right live-preview
-//! panel (380 px) -> central scrolling form. The window exits completely when
-//! closed, so none of this GUI memory stays resident in the daemon.
+//! Shell, outside-in: 220 px navigation rail -> sticky 56 px footer ->
+//! scrollable 28 px content column with a page header, a compact desktop
+//! preview, and stacked `SettingsRow`s. The process exits completely when the
+//! window closes, so none of this GUI memory stays resident in the daemon.
 
 use std::time::{Duration, Instant};
 
@@ -16,33 +18,51 @@ use crate::config::{
     self, parse_hex, to_hex, BgFit, BgMode, Config, MaterialKind, Position, SourceMode, PALETTES,
 };
 use crate::git_fetcher::{self, DayStat};
-use crate::renderer::{layout as scene_layout, render, Scene};
+use crate::renderer::{render, Scene};
 use crate::{security, win_api};
 
-// ---------------------------------------------------------------- theme tokens
+const WINDOW_TITLE: &str = "GitWallpaper Settings";
+const WINDOW_BG: u32 = 0x20_20_20;
 
-const BG: Color32 = Color32::from_rgb(0x16, 0x16, 0x1A);
-const SURFACE: Color32 = Color32::from_rgb(0x1F, 0x1F, 0x24);
-const SURFACE_HI: Color32 = Color32::from_rgb(0x27, 0x27, 0x2E);
-const INPUT: Color32 = Color32::from_rgb(0x11, 0x11, 0x14);
-const BORDER: Color32 = Color32::from_rgb(0x2D, 0x2D, 0x35);
+// ------------------------------------------------------------- WinUI 3 tokens
+
+const BG: Color32 = Color32::from_rgb(0x20, 0x20, 0x20);
+const CARD: Color32 = Color32::from_rgb(0x2B, 0x2B, 0x2B);
+const CARD_HOVER: Color32 = Color32::from_rgb(0x32, 0x32, 0x32);
+const INPUT: Color32 = Color32::from_rgb(0x22, 0x22, 0x22);
+const SECONDARY_BG: Color32 = Color32::from_rgb(0x35, 0x35, 0x35);
+const SECONDARY_BORDER: Color32 = Color32::from_rgb(0x45, 0x45, 0x45);
+const NAV_ACTIVE: Color32 = Color32::from_rgb(0x2D, 0x2D, 0x2D);
 const ACCENT: Color32 = Color32::from_rgb(0x2E, 0xA0, 0x43);
-const TEXT: Color32 = Color32::from_rgb(0xE6, 0xE6, 0xEA);
-const MUTED: Color32 = Color32::from_rgb(0x8B, 0x8B, 0x93);
-const WARN: Color32 = Color32::from_rgb(0xD9, 0x9A, 0x3F);
+const TEXT: Color32 = Color32::from_rgb(0xF5, 0xF5, 0xF5);
+const MUTED: Color32 = Color32::from_rgb(0x9E, 0x9E, 0x9E);
 const DANGER: Color32 = Color32::from_rgb(0xE5, 0x53, 0x4B);
 
-const NAV_WIDTH: f32 = 190.0;
-const PREVIEW_WIDTH: f32 = 380.0;
-const CARD_PAD_X: f32 = 16.0;
-const CARD_PAD_Y: f32 = 14.0;
-const ROW_HEIGHT: f32 = 32.0;
+const NAV_WIDTH: f32 = 220.0;
+const PAGE_PAD_X: f32 = 28.0;
+const ROW_PAD_X: f32 = 16.0;
+const ROW_PAD_Y: f32 = 12.0;
+const CONTROL_H: f32 = 30.0;
+const HERO_W: f32 = 320.0;
+const HERO_H: f32 = 180.0;
 
-fn accent_fill() -> Color32 {
-    Color32::from_rgba_unmultiplied(0x2E, 0xA0, 0x43, 34)
+fn hair() -> Color32 {
+    Color32::from_white_alpha(14)
 }
 
-// ---------------------------------------------------------------------- theme
+fn hair_strong() -> Color32 {
+    Color32::from_white_alpha(26)
+}
+
+fn accent_soft() -> Color32 {
+    Color32::from_rgba_unmultiplied(0x2E, 0xA0, 0x43, 48)
+}
+
+fn pen(width: f32, color: Color32) -> Stroke {
+    Stroke::new(width, color)
+}
+
+// ------------------------------------------------------------------- theme
 
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
@@ -67,9 +87,8 @@ fn install_fonts(ctx: &egui::Context) {
             .or_default()
             .insert(0, "consolas".to_owned());
     }
-    // Icons land at index 1 of the proportional family, behind the system face.
+    // Phosphor lands at index 1 so text glyphs still come from Segoe UI.
     egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-
     ctx.set_fonts(fonts);
 }
 
@@ -78,90 +97,107 @@ fn apply_theme(ctx: &egui::Context) {
     let mut v = egui::Visuals::dark();
 
     v.panel_fill = BG;
-    v.window_fill = SURFACE;
+    v.window_fill = BG;
     v.extreme_bg_color = INPUT;
-    v.faint_bg_color = SURFACE_HI;
+    v.faint_bg_color = CARD;
     v.override_text_color = Some(TEXT);
-    v.window_stroke = pen(1.0, BORDER);
-    v.window_rounding = Rounding::same(12.0);
-    v.menu_rounding = Rounding::same(8.0);
+    v.window_stroke = pen(1.0, hair());
+    v.window_rounding = Rounding::same(8.0);
+    v.menu_rounding = Rounding::same(4.0);
+    v.handle_shape = egui::style::HandleShape::Circle;
     v.selection = egui::style::Selection {
-        bg_fill: accent_fill(),
+        bg_fill: accent_soft(),
         stroke: pen(1.0, ACCENT),
     };
 
     let w = &mut v.widgets;
-    w.noninteractive.bg_fill = SURFACE;
-    w.noninteractive.weak_bg_fill = SURFACE;
-    w.noninteractive.bg_stroke = pen(1.0, BORDER);
+    w.noninteractive.bg_fill = CARD;
+    w.noninteractive.weak_bg_fill = CARD;
+    w.noninteractive.bg_stroke = pen(1.0, hair());
     w.noninteractive.fg_stroke = pen(1.0, MUTED);
-    w.noninteractive.rounding = Rounding::same(6.0);
+    w.noninteractive.rounding = Rounding::same(4.0);
 
     w.inactive.bg_fill = INPUT;
-    w.inactive.weak_bg_fill = SURFACE_HI;
-    w.inactive.bg_stroke = pen(1.0, BORDER);
+    w.inactive.weak_bg_fill = CARD;
+    w.inactive.bg_stroke = pen(1.0, hair());
     w.inactive.fg_stroke = pen(1.0, TEXT);
-    w.inactive.rounding = Rounding::same(6.0);
+    w.inactive.rounding = Rounding::same(4.0);
 
-    w.hovered.bg_fill = SURFACE_HI;
-    w.hovered.weak_bg_fill = SURFACE_HI;
-    w.hovered.bg_stroke = pen(1.0, ACCENT.gamma_multiply(0.7));
-    w.hovered.fg_stroke = pen(1.5, TEXT);
-    w.hovered.rounding = Rounding::same(6.0);
+    w.hovered.bg_fill = CARD_HOVER;
+    w.hovered.weak_bg_fill = CARD_HOVER;
+    w.hovered.bg_stroke = pen(1.0, hair_strong());
+    w.hovered.fg_stroke = pen(1.4, TEXT);
+    w.hovered.rounding = Rounding::same(4.0);
 
     w.active.bg_fill = INPUT;
     w.active.weak_bg_fill = INPUT;
     w.active.bg_stroke = pen(1.0, ACCENT);
-    w.active.fg_stroke = pen(1.5, TEXT);
-    w.active.rounding = Rounding::same(6.0);
+    w.active.fg_stroke = pen(1.4, TEXT);
+    w.active.rounding = Rounding::same(4.0);
 
-    w.open.bg_fill = SURFACE_HI;
-    w.open.weak_bg_fill = SURFACE_HI;
-    w.open.bg_stroke = pen(1.0, BORDER);
+    w.open.bg_fill = CARD_HOVER;
+    w.open.weak_bg_fill = CARD_HOVER;
+    w.open.bg_stroke = pen(1.0, hair_strong());
     w.open.fg_stroke = pen(1.0, TEXT);
-    w.open.rounding = Rounding::same(6.0);
+    w.open.rounding = Rounding::same(4.0);
 
     style.visuals = v;
 
     let sp = &mut style.spacing;
-    sp.item_spacing = Vec2::new(12.0, 10.0);
-    sp.button_padding = Vec2::new(14.0, 8.0);
-    sp.interact_size = Vec2::new(48.0, ROW_HEIGHT);
-    sp.slider_width = 180.0;
+    sp.item_spacing = Vec2::new(10.0, 6.0);
+    sp.button_padding = Vec2::new(12.0, 5.0);
+    sp.interact_size = Vec2::new(44.0, CONTROL_H);
+    sp.slider_width = 170.0;
+    sp.slider_rail_height = 4.0;
     sp.indent = 16.0;
     sp.scroll.floating = false;
     sp.scroll.bar_width = 8.0;
 
     style.text_styles = [
-        (TextStyle::Heading, FontId::new(20.0, FontFamily::Proportional)),
-        (TextStyle::Body, FontId::new(13.5, FontFamily::Proportional)),
-        (TextStyle::Button, FontId::new(13.5, FontFamily::Proportional)),
-        (TextStyle::Small, FontId::new(11.5, FontFamily::Proportional)),
-        (TextStyle::Monospace, FontId::new(12.0, FontFamily::Monospace)),
+        (
+            TextStyle::Heading,
+            FontId::new(20.0, FontFamily::Proportional),
+        ),
+        (TextStyle::Body, FontId::new(14.0, FontFamily::Proportional)),
+        (
+            TextStyle::Button,
+            FontId::new(14.0, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Small,
+            FontId::new(12.0, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Monospace,
+            FontId::new(12.0, FontFamily::Monospace),
+        ),
     ]
     .into();
 
     ctx.set_style(style);
 }
 
-// ---------------------------------------------------------------- entry point
+// ------------------------------------------------------------- entry point
 
 pub fn run() -> Result<(), String> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1040.0, 660.0])
-            .with_min_inner_size([860.0, 540.0])
+            .with_inner_size([960.0, 640.0])
+            .with_min_inner_size([780.0, 520.0])
             .with_resizable(true)
-            .with_title("GitWallpaper Settings"),
+            .with_title(WINDOW_TITLE),
         ..Default::default()
     };
     eframe::run_native(
-        "GitWallpaper Settings",
+        WINDOW_TITLE,
         options,
         Box::new(|cc| {
             install_fonts(&cc.egui_ctx);
             apply_theme(&cc.egui_ctx);
-            Ok(Box::new(SettingsApp::new(cc)))
+            let app = SettingsApp::new(cc);
+            // Blend the native caption into the app background (Windows 11).
+            let _ = win_api::apply_dark_titlebar(WINDOW_TITLE, WINDOW_BG);
+            Ok(Box::new(app))
         }),
     )
     .map_err(|e| format!("eframe: {e}"))
@@ -176,11 +212,21 @@ enum Tab {
 }
 
 impl Tab {
-    const ALL: [(Tab, &'static str, &'static str); 4] = [
-        (Tab::Source, icons::GIT_BRANCH, "Git Source"),
-        (Tab::Background, icons::IMAGE, "Background"),
-        (Tab::Material, icons::SPARKLE, "Material & Blur"),
-        (Tab::Track, icons::GRID_FOUR, "Track & Boxes"),
+    const ALL: [(Tab, &'static str, &'static str, &'static str); 4] = [
+        (Tab::Source, icons::GIT_BRANCH, "Git Source", "Git Source"),
+        (Tab::Background, icons::IMAGE, "Background", "Background"),
+        (
+            Tab::Material,
+            icons::SPARKLE,
+            "Material & Blur",
+            "Material & Blur",
+        ),
+        (
+            Tab::Track,
+            icons::GRID_FOUR,
+            "Track & Boxes",
+            "Track & Boxes",
+        ),
     ];
 }
 
@@ -212,15 +258,13 @@ struct SettingsApp {
 impl SettingsApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let (mut cfg, warn) = Config::load_or_default();
-        // The Run key is the source of truth for "starts with Windows"; trust it
-        // when it says yes so a saved toggle never silently disables the daemon.
         cfg.start_with_windows = cfg.start_with_windows || win_api::is_start_with_windows();
         let api_key = security::decrypt(&cfg.source.encrypted_api_key).unwrap_or_default();
         let days = git_fetcher::load_cache().unwrap_or_else(git_fetcher::demo_days);
         let toast = warn.map(|text| Toast {
             text,
             kind: ToastKind::Error,
-            until: Instant::now() + Duration::from_secs(6),
+            until: Instant::now() + Duration::from_secs(8),
         });
         Self {
             cfg,
@@ -239,21 +283,18 @@ impl SettingsApp {
         self.toast = Some(Toast {
             text: text.into(),
             kind,
-            until: Instant::now() + Duration::from_secs(5),
+            until: Instant::now() + Duration::from_secs(6),
         });
     }
 
-    // ------------------------------------------------------------- preview
-
-    fn rebuild_preview(&mut self, ctx: &egui::Context, width: f32) {
+    fn preview(&mut self, ctx: &egui::Context) {
         let (sw, sh) = self.resolution;
-        let width = width.clamp(240.0, 360.0).round() as u32;
-        let scale = width as f32 / sw as f32;
-        let height = ((sh as f32 * scale).round() as u32).max(120);
+        let scale = HERO_W / sw as f32;
+        let height = (sh as f32 * scale).round().max(90.0) as u32;
         let scene = Scene {
             config: &self.cfg,
             days: &self.days,
-            size_px: (width, height),
+            size_px: (HERO_W as u32, height),
             scale,
         };
         let Ok(pm) = render(&scene) else {
@@ -263,30 +304,32 @@ impl SettingsApp {
             [pm.width() as usize, pm.height() as usize],
             pm.data(),
         );
-        let texture = ctx.load_texture("preview", image, egui::TextureOptions::LINEAR);
-        self.preview = Some(texture);
+        self.preview = Some(ctx.load_texture("preview", image, egui::TextureOptions::LINEAR));
         self.last_rendered = Some(self.cfg.clone());
     }
 
-    // ------------------------------------------------------------- actions
+    // -------------------------------------------------------------- actions
 
     fn save_and_apply(&mut self) {
         if self.cfg.source.input_target.trim().is_empty() {
             self.notify(
                 ToastKind::Info,
-                "Target GitHub masih kosong: isi username atau URL repo agar ada data.",
+                "Nothing to track yet: enter a GitHub username or repository URL.",
             );
         }
         match security::encrypt(&self.api_key) {
             Ok(blob) => self.cfg.source.encrypted_api_key = blob,
             Err(e) => {
-                self.notify(ToastKind::Error, format!("Token gagal dienkripsi: {e}"));
+                self.notify(
+                    ToastKind::Error,
+                    format!("Could not encrypt the token: {e}"),
+                );
                 return;
             }
         }
         self.cfg.sanitize();
         if let Err(e) = self.cfg.save() {
-            self.notify(ToastKind::Error, format!("Gagal menyimpan config: {e}"));
+            self.notify(ToastKind::Error, format!("Could not save config: {e}"));
             return;
         }
         if let Ok(exe) = std::env::current_exe() {
@@ -295,19 +338,19 @@ impl SettingsApp {
         let autostart = win_api::is_start_with_windows();
         let signalled = win_api::signal_refresh_event();
         let mut note = if signalled {
-            "Config disimpan, wallpaper sedang diperbarui.".to_string()
+            "Saved. The daemon is refreshing the wallpaper.".to_string()
         } else if std::env::current_exe()
             .map(|exe| std::process::Command::new(exe).spawn().is_ok())
             .unwrap_or(false)
         {
-            "Config disimpan, daemon dijalankan.".to_string()
+            "Saved. The daemon was not running, so it was started.".to_string()
         } else {
-            "Config disimpan. Daemon tidak berjalan; jalankan git-wallpaper.exe.".to_string()
+            "Saved. The daemon is not running; start git-wallpaper.exe.".to_string()
         };
         note.push_str(if autostart {
-            " Autostart aktif."
+            " Autostart is on."
         } else {
-            " Autostart nonaktif."
+            " Autostart is off."
         });
         self.notify(ToastKind::Success, note);
     }
@@ -317,7 +360,10 @@ impl SettingsApp {
         match security::encrypt(&self.api_key) {
             Ok(blob) => probe.source.encrypted_api_key = blob,
             Err(e) => {
-                self.notify(ToastKind::Error, format!("Token gagal dienkripsi: {e}"));
+                self.notify(
+                    ToastKind::Error,
+                    format!("Could not encrypt the token: {e}"),
+                );
                 return;
             }
         }
@@ -329,16 +375,16 @@ impl SettingsApp {
                 self.last_rendered = None;
                 self.notify(
                     ToastKind::Success,
-                    format!("Koneksi OK: {total} kontribusi dalam setahun terakhir."),
+                    format!("Connection OK: {total} contributions in the last year."),
                 );
             }
-            Err(e) => self.notify(ToastKind::Error, format!("Koneksi gagal: {e}")),
+            Err(e) => self.notify(ToastKind::Error, format!("Connection failed: {e}")),
         }
     }
 
-    // -------------------------------------------------------------- shell
+    // ---------------------------------------------------------------- shell
 
-    fn draw_nav(&mut self, ctx: &egui::Context) {
+    fn draw_sidebar(&mut self, ctx: &egui::Context) {
         let daemon_up = win_api::daemon_event_exists();
         let autostart = win_api::is_start_with_windows();
         let mut tab = self.tab;
@@ -346,238 +392,173 @@ impl SettingsApp {
         egui::SidePanel::left("nav")
             .exact_width(NAV_WIDTH)
             .resizable(false)
+            .show_separator_line(false)
             .frame(
                 Frame::none()
-                    .fill(SURFACE)
+                    .fill(BG)
                     .inner_margin(Margin::symmetric(12.0, 14.0)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(icons::PALETTE).size(20.0).color(ACCENT));
-                    ui.add_space(2.0);
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new("GitWallpaper").size(14.5).strong());
-                        ui.label(
-                            RichText::new("Kontribusi GitHub")
-                                .size(10.5)
-                                .color(MUTED),
-                        );
-                    });
-                });
-                ui.add_space(20.0);
-
-                for (value, icon, label) in Tab::ALL {
-                    nav_row(ui, value, icon, label, &mut tab);
+                    ui.label(RichText::new(icons::PALETTE).size(18.0).color(ACCENT));
                     ui.add_space(4.0);
+                    ui.label(RichText::new("GitWallpaper").size(14.0).color(TEXT));
+                });
+                ui.add_space(18.0);
+
+                for (value, icon, label, _) in Tab::ALL {
+                    nav_item(ui, value, icon, label, &mut tab);
                 }
 
                 ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
-                    ui.label(
-                        RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
-                            .size(10.0)
-                            .color(MUTED),
+                    let status = format!(
+                        "Daemon: {}  ·  Autostart: {}  ·  v{}",
+                        if daemon_up { "Running" } else { "Stopped" },
+                        if autostart { "On" } else { "Off" },
+                        env!("CARGO_PKG_VERSION")
                     );
-                    ui.add_space(6.0);
-                    badge_row(
-                        ui,
-                        "Autostart",
-                        if autostart { "aktif" } else { "nonaktif" },
-                        Some(autostart),
-                    );
-                    ui.add_space(6.0);
-                    badge_row(
-                        ui,
-                        "Daemon",
-                        if daemon_up { "berjalan" } else { "mati" },
-                        Some(daemon_up),
-                    );
+                    ui.add(egui::Label::new(RichText::new(status).size(11.0).color(MUTED)).wrap());
                 });
             });
 
         self.tab = tab;
     }
 
-    fn draw_preview_panel(&mut self, ctx: &egui::Context) {
-        let (sw, sh) = self.resolution;
-        let scene = Scene {
-            config: &self.cfg,
-            days: &self.days,
-            size_px: (320, 180),
-            scale: 320.0 / sw as f32,
-        };
-        let l = scene_layout(&scene);
-        let theme_name = material_name(self.cfg.card.material);
-        let pos_name = position_name(self.cfg.card.position);
-        let card_w = l.card_w.round();
-        let card_h = l.card_h.round();
+    fn draw_footer(&mut self, ctx: &egui::Context) {
+        let mut save = false;
+        let mut test = false;
 
-        egui::SidePanel::right("preview")
-            .exact_width(PREVIEW_WIDTH)
-            .resizable(false)
+        egui::TopBottomPanel::bottom("footer")
+            .exact_height(56.0)
+            .show_separator_line(false)
             .frame(
                 Frame::none()
-                    .fill(SURFACE)
-                    .inner_margin(Margin::symmetric(16.0, 14.0)),
+                    .fill(BG)
+                    .inner_margin(Margin::symmetric(20.0, 10.0)),
             )
             .show(ctx, |ui| {
-                let mut save = false;
-                let mut test = false;
+                let rect = ui.max_rect();
+                ui.painter()
+                    .hline(rect.x_range(), rect.top(), pen(1.0, hair_strong()));
 
-                ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
-                    save = ui
-                        .add_sized(
-                            [ui.available_width(), 36.0],
-                            Button::new(
-                                RichText::new(format!("{}  Save & Apply", icons::FLOPPY_DISK))
-                                    .size(13.5)
-                                    .color(Color32::WHITE),
-                            )
-                            .fill(ACCENT)
-                            .stroke(Stroke::NONE)
-                            .rounding(Rounding::same(6.0)),
-                        )
-                        .clicked();
-                    ui.add_space(8.0);
-                    test = ui
-                        .add_sized(
-                            [ui.available_width(), 32.0],
-                            Button::new(
-                                RichText::new(format!("{}  Test Connection", icons::PULSE))
-                                    .size(13.0),
-                            )
-                            .fill(SURFACE_HI)
-                            .stroke(pen(1.0, BORDER))
-                            .rounding(Rounding::same(6.0)),
-                        )
-                        .clicked();
-
-                    ui.add_space(14.0);
-                    ui.separator();
-                    ui.add_space(8.0);
-                    info_row(ui, "Material", theme_name);
-                    info_row(ui, "Posisi", pos_name);
-                    info_row(
-                        ui,
-                        "Kartu",
-                        &format!("{card_w:.0} x {card_h:.0} px"),
-                    );
-                    info_row(ui, "Resolusi", &format!("{sw} x {sh}"));
-                    info_row(
-                        ui,
-                        "Data",
-                        &format!("{} hari", self.days.len()),
-                    );
-                    ui.add_space(8.0);
-
-                    // Monitor mockup, drawn above the info rows (bottom-up order).
-                    Frame::none()
-                        .fill(Color32::from_rgb(0x0E, 0x0E, 0x11))
-                        .stroke(pen(1.0, BORDER))
-                        .rounding(Rounding::same(8.0))
-                        .inner_margin(Margin::same(8.0))
-                        .show(ui, |ui| {
-                            if let Some(tex) = &self.preview {
-                                let size = tex.size_vec2();
+                ui.horizontal(|ui| {
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        match &self.toast {
+                            Some(toast) => {
+                                let (color, icon) = toast_style(toast.kind);
+                                ui.label(RichText::new(icon).size(14.0).color(color));
                                 ui.add(
-                                    egui::Image::new(egui::load::SizedTexture::new(
-                                        tex.id(),
-                                        size,
-                                    ))
-                                    .max_width(ui.available_width()),
+                                    egui::Label::new(
+                                        RichText::new(&toast.text).size(12.0).color(TEXT),
+                                    )
+                                    .truncate(),
                                 );
-                            } else {
-                                ui.allocate_space(Vec2::new(ui.available_width(), 140.0));
                             }
-                        });
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new("PRATINJAU LANGSUNG")
-                            .size(10.0)
-                            .strong()
-                            .color(MUTED),
-                    );
-                });
+                            None => {
+                                ui.label(RichText::new("Ready").size(12.0).color(MUTED));
+                            }
+                        }
+                    });
 
-                if save {
-                    self.save_and_apply();
-                }
-                if test {
-                    self.test_connection();
-                }
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        save = ui
+                            .add_sized(
+                                [128.0, CONTROL_H],
+                                Button::new(
+                                    RichText::new("Save & Apply")
+                                        .size(13.0)
+                                        .color(Color32::WHITE),
+                                )
+                                .fill(ACCENT)
+                                .stroke(Stroke::NONE)
+                                .rounding(Rounding::same(4.0)),
+                            )
+                            .clicked();
+                        ui.add_space(8.0);
+                        test = ui
+                            .add_sized(
+                                [128.0, CONTROL_H],
+                                Button::new(RichText::new("Test Connection").size(13.0))
+                                    .fill(SECONDARY_BG)
+                                    .stroke(pen(1.0, SECONDARY_BORDER))
+                                    .rounding(Rounding::same(4.0)),
+                            )
+                            .clicked();
+                    });
+                });
             });
+
+        if save {
+            self.save_and_apply();
+        }
+        if test {
+            self.test_connection();
+        }
     }
 
-    fn draw_form(&mut self, ctx: &egui::Context) {
+    fn draw_content(&mut self, ctx: &egui::Context) {
+        let page_title = match self.tab {
+            Tab::Source => "Git Source",
+            Tab::Background => "Background",
+            Tab::Material => "Material & Blur",
+            Tab::Track => "Track & Boxes",
+        };
+
         egui::CentralPanel::default()
             .frame(
                 Frame::none()
                     .fill(BG)
-                    .inner_margin(Margin::symmetric(18.0, 16.0)),
+                    .inner_margin(Margin::symmetric(PAGE_PAD_X, 20.0)),
             )
             .show(ctx, |ui| {
-                let content_w = ui.available_width();
                 ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        ui.set_width(content_w);
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new(page_title).size(26.0).strong().color(TEXT));
+                        ui.add_space(14.0);
+                        self.hero(ui);
+                        ui.add_space(18.0);
                         match self.tab {
-                            Tab::Source => self.tab_source(ui, content_w),
-                            Tab::Background => self.tab_background(ui, content_w),
-                            Tab::Material => self.tab_material(ui, content_w),
-                            Tab::Track => self.tab_track(ui, content_w),
+                            Tab::Source => self.tab_source(ui),
+                            Tab::Background => self.tab_background(ui),
+                            Tab::Material => self.tab_material(ui),
+                            Tab::Track => self.tab_track(ui),
                         }
                     });
             });
     }
 
-    fn draw_toast(&mut self, ctx: &egui::Context) {
-        let Some(toast) = &self.toast else {
-            return;
-        };
-        let remaining = toast.until.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            self.toast = None;
-            return;
-        }
-        let (color, icon) = match toast.kind {
-            ToastKind::Success => (ACCENT, icons::CHECK_CIRCLE),
-            ToastKind::Error => (DANGER, icons::WARNING),
-            ToastKind::Info => (MUTED, icons::INFO),
-        };
-        let screen = ctx.screen_rect();
-        let pos = egui::pos2(NAV_WIDTH + 20.0, screen.bottom() - 62.0);
-        let text = toast.text.clone();
-
-        egui::Area::new(egui::Id::new("gitwallpaper-toast"))
-            .fixed_pos(pos)
-            .order(egui::Order::Foreground)
-            .interactable(false)
-            .show(ctx, |ui| {
-                Frame::none()
-                    .fill(SURFACE_HI)
-                    .stroke(pen(1.0, color.gamma_multiply(0.6)))
-                    .rounding(Rounding::same(8.0))
-                    .inner_margin(Margin::symmetric(12.0, 8.0))
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(icon).size(14.0).color(color));
-                            ui.label(RichText::new(text).size(12.0).color(TEXT));
-                        });
-                    });
+    fn hero(&self, ui: &mut egui::Ui) {
+        Frame::none()
+            .fill(Color32::from_rgb(0x17, 0x17, 0x17))
+            .stroke(pen(1.0, hair()))
+            .rounding(Rounding::same(8.0))
+            .inner_margin(Margin::same(4.0))
+            .show(ui, |ui| match &self.preview {
+                Some(tex) => {
+                    let size = tex.size_vec2();
+                    ui.add(
+                        egui::Image::new(egui::load::SizedTexture::new(tex.id(), size))
+                            .fit_to_exact_size(Vec2::new(HERO_W, HERO_H))
+                            .rounding(6.0),
+                    );
+                }
+                None => {
+                    ui.allocate_space(Vec2::new(HERO_W, HERO_H));
+                }
             });
-        ctx.request_repaint_after(remaining);
     }
 
-    // --------------------------------------------------------------- tabs
+    // ----------------------------------------------------------------- tabs
 
-    fn tab_source(&mut self, ui: &mut egui::Ui, width: f32) {
-        card(
+    fn tab_source(&mut self, ui: &mut egui::Ui) {
+        setting_row(
             ui,
-            width,
-            "Sumber data",
-            Some("Dari mana kontribusi diambil."),
+            icons::GIT_BRANCH,
+            "Data source",
+            "Profile contribution graph, or the commits of one repository.",
             |ui| {
-                section_label(ui, "Tipe sumber");
                 segmented(
                     ui,
                     &mut self.cfg.source.mode,
@@ -586,106 +567,109 @@ impl SettingsApp {
                         (SourceMode::Repository, "Repository"),
                     ],
                 );
-                ui.add_space(10.0);
-
-                let (title, hint, helper) = match self.cfg.source.mode {
-                    SourceMode::Profile => (
-                        "Username GitHub",
-                        "octocat",
-                        "Grafik kontribusi tahunan akun ini (GraphQL, butuh token).",
-                    ),
-                    SourceMode::Repository => (
-                        "URL repository",
-                        "https://github.com/owner/repo",
-                        "Riwayat commit repo ini. Repo privat butuh token dengan izin Contents: Read.",
-                    ),
-                };
-                section_label(ui, title);
-                ui.add_sized(
-                    [ui.available_width(), ROW_HEIGHT],
-                    egui::TextEdit::singleline(&mut self.cfg.source.input_target)
-                        .hint_text(hint),
-                );
-                helper_text(ui, helper);
             },
         );
 
-        card(
+        let (title, desc, hint) = match self.cfg.source.mode {
+            SourceMode::Profile => (
+                "GitHub username",
+                "Contributions of this account over the last year (GraphQL, token required).",
+                "octocat",
+            ),
+            SourceMode::Repository => (
+                "Repository URL",
+                "Commit history of this repository. Private repos need a token with Contents: Read.",
+                "https://github.com/owner/repo",
+            ),
+        };
+        setting_row_stacked(ui, icons::USER, title, desc, |ui| {
+            text_field(ui, &mut self.cfg.source.input_target, hint);
+        });
+
+        setting_row_stacked(
             ui,
-            width,
-            "Autentikasi & sinkronisasi",
-            Some("Token tidak pernah ditulis sebagai plaintext."),
+            icons::KEY,
+            "Personal access token",
+            "Encrypted with DPAPI and bound to this Windows account. Never written in plaintext.",
             |ui| {
-                section_label(ui, "Personal Access Token");
                 ui.horizontal(|ui| {
-                    let toggle_w = 36.0;
-                    let field_w = (ui.available_width() - toggle_w - 8.0).max(80.0);
+                    let toggle = CONTROL_H;
+                    let field_w = (ui.available_width() - toggle - 8.0).max(120.0);
                     ui.add_sized(
-                        [field_w, ROW_HEIGHT],
+                        [field_w, CONTROL_H],
                         egui::TextEdit::singleline(&mut self.api_key)
                             .password(!self.show_token)
-                            .hint_text("ghp_... / github_pat_..."),
+                            .hint_text("ghp_... or github_pat_...")
+                            .margin(Margin::symmetric(8.0, 5.0)),
                     );
                     let (icon, tip) = if self.show_token {
-                        (icons::EYE_SLASH, "Sembunyikan token")
+                        (icons::EYE_SLASH, "Hide token")
                     } else {
-                        (icons::EYE, "Tampilkan token")
+                        (icons::EYE, "Show token")
                     };
-                    let resp = ui
+                    if ui
                         .add_sized(
-                            [toggle_w, ROW_HEIGHT],
+                            [toggle, CONTROL_H],
                             Button::new(RichText::new(icon).size(15.0))
                                 .fill(INPUT)
-                                .stroke(pen(1.0, BORDER))
-                                .rounding(Rounding::same(6.0)),
+                                .stroke(pen(1.0, hair()))
+                                .rounding(Rounding::same(4.0)),
                         )
-                        .on_hover_text(tip);
-                    if resp.clicked() {
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
                         self.show_token = !self.show_token;
                     }
                 });
-                helper_text(
-                    ui,
-                    "Disimpan terenkripsi DPAPI (entropi GitWallpaper/v1), terikat akun Windows ini.",
-                );
+            },
+        );
 
-                ui.add_space(14.0);
-                slider_row_u32(
-                    ui,
-                    "Interval refresh",
-                    &mut self.cfg.source.refresh_interval_minutes,
-                    5..=240,
-                    " menit",
-                );
-                helper_text(ui, "Seberapa sering daemon mengambil data baru dari GitHub.");
+        setting_row(
+            ui,
+            icons::CLOCK,
+            "Refresh interval",
+            "How often the daemon fetches new data.",
+            |ui| {
+                let mut minutes = self.cfg.source.refresh_interval_minutes as f32;
+                slider_with_badge(ui, &mut minutes, 5.0..=240.0, " min", 0);
+                self.cfg.source.refresh_interval_minutes = minutes.round().clamp(5.0, 240.0) as u32;
             },
         );
     }
 
-    fn tab_background(&mut self, ui: &mut egui::Ui, width: f32) {
-        card(
+    fn tab_background(&mut self, ui: &mut egui::Ui) {
+        setting_row(
             ui,
-            width,
-            "Latar belakang desktop",
-            Some("Gambar, warna solid, atau gradient dua titik."),
+            icons::IMAGE,
+            "Background mode",
+            "Desktop background behind the tracker card.",
             |ui| {
                 segmented(
                     ui,
                     &mut self.cfg.background.mode,
                     &[
-                        (BgMode::Image, "Gambar"),
+                        (BgMode::Image, "Image"),
                         (BgMode::Solid, "Solid"),
                         (BgMode::Gradient, "Gradient"),
                     ],
                 );
-                ui.add_space(10.0);
+            },
+        );
 
-                section_label(ui, "Berkas gambar");
+        setting_row_stacked(
+            ui,
+            icons::FOLDER_OPEN,
+            "Image file",
+            "Used when the mode is Image.",
+            |ui| {
                 ui.horizontal(|ui| {
                     if ui
                         .add_sized(
-                            [120.0, ROW_HEIGHT],
-                            Button::new(RichText::new("Pilih berkas...").size(12.5)),
+                            [112.0, CONTROL_H],
+                            Button::new(RichText::new("Browse...").size(13.0))
+                                .fill(SECONDARY_BG)
+                                .stroke(pen(1.0, SECONDARY_BORDER))
+                                .rounding(Rounding::same(4.0)),
                         )
                         .clicked()
                     {
@@ -698,21 +682,26 @@ impl SettingsApp {
                         }
                     }
                     let shown = if self.cfg.background.image_path.is_empty() {
-                        "(belum ada gambar)".to_string()
+                        "No image selected".to_string()
                     } else {
                         self.cfg.background.image_path.clone()
                     };
                     ui.add(
-                        egui::Label::new(RichText::new(shown).size(11.5).color(MUTED))
-                            .truncate(),
+                        egui::Label::new(RichText::new(shown).size(12.0).color(MUTED)).truncate(),
                     );
                 });
-                helper_text(ui, "Dipakai hanya jika mode Gambar aktif.");
+            },
+        );
 
-                ui.add_space(14.0);
-                section_label(ui, "Cara gambar mengisi layar");
-                segmented(
+        setting_row(
+            ui,
+            icons::ARROWS_OUT_SIMPLE,
+            "Fit",
+            "How the image fills the screen.",
+            |ui| {
+                dropdown(
                     ui,
+                    "fit",
                     &mut self.cfg.background.fit,
                     &[
                         (BgFit::Cover, "Cover"),
@@ -723,250 +712,249 @@ impl SettingsApp {
             },
         );
 
-        card(
+        setting_row(
             ui,
-            width,
-            "Warna",
-            Some("Dipakai untuk solid, gradient, dan area kosong pada mode Contain."),
+            icons::PALETTE,
+            "Primary color",
+            "Used by Solid, Gradient, and empty areas in Contain mode.",
             |ui| {
-                color_field(ui, "Warna utama", &mut self.cfg.background.color_primary);
-                ui.add_space(10.0);
-                color_field(ui, "Warna kedua", &mut self.cfg.background.color_secondary);
+                color_control(ui, &mut self.cfg.background.color_primary);
+            },
+        );
+
+        setting_row(
+            ui,
+            icons::PALETTE,
+            "Secondary color",
+            "Gradient end color.",
+            |ui| {
+                color_control(ui, &mut self.cfg.background.color_secondary);
             },
         );
     }
 
-    fn tab_material(&mut self, ui: &mut egui::Ui, width: f32) {
-        card(
-            ui,
-            width,
-            "Material kartu",
-            Some("Efek backdrop di belakang heatmap."),
-            |ui| {
-                let mut kind = self.cfg.card.material;
-                ui.horizontal_wrapped(|ui| {
-                    for value in [
-                        MaterialKind::None,
-                        MaterialKind::Solid,
-                        MaterialKind::Glass,
-                        MaterialKind::Acrylic,
-                        MaterialKind::Mica,
-                    ] {
-                        let selected = kind == value;
-                        let label = material_name(value);
-                        let btn = Button::new(
-                            RichText::new(label)
-                                .size(12.0)
-                                .color(if selected { TEXT } else { MUTED }),
-                        )
-                        .fill(if selected { accent_fill() } else { INPUT })
-                        .stroke(pen(
-                            1.0,
-                            if selected { ACCENT } else { BORDER },
-                        ))
-                        .rounding(Rounding::same(999.0))
-                        .min_size(Vec2::new(0.0, 28.0));
-                        if ui.add(btn).clicked() {
-                            kind = value;
-                        }
-                    }
-                });
-                self.cfg.card.material = kind;
-                helper_text(ui, material_hint(kind));
+    fn tab_material(&mut self, ui: &mut egui::Ui) {
+        let hint = material_hint(self.cfg.card.material);
+        setting_row(ui, icons::SPARKLE, "Material", hint, |ui| {
+            dropdown(
+                ui,
+                "material",
+                &mut self.cfg.card.material,
+                &[
+                    (MaterialKind::None, "None"),
+                    (MaterialKind::Solid, "Solid"),
+                    (MaterialKind::Glass, "Glass"),
+                    (MaterialKind::Acrylic, "Acrylic"),
+                    (MaterialKind::Mica, "Mica"),
+                ],
+            );
+        });
 
-                ui.add_space(14.0);
-                slider_row(
-                    ui,
-                    "Opacity",
-                    &mut self.cfg.card.opacity,
-                    0.0..=1.0,
-                    "",
-                    2,
-                );
-                ui.add_space(10.0);
-                slider_row(
-                    ui,
-                    "Blur radius",
-                    &mut self.cfg.card.blur_radius,
-                    0.0..=50.0,
-                    " px",
-                    0,
-                );
-                ui.add_space(10.0);
-                slider_row(
-                    ui,
-                    "Corner radius",
-                    &mut self.cfg.card.corner_radius,
-                    0.0..=80.0,
-                    " px",
-                    0,
-                );
-                ui.add_space(12.0);
-                color_field(ui, "Tint kartu", &mut self.cfg.card.tint_color);
+        setting_row(
+            ui,
+            icons::CIRCLE_HALF,
+            "Opacity",
+            "Card tint strength over the backdrop.",
+            |ui| {
+                slider_with_badge(ui, &mut self.cfg.card.opacity, 0.0..=1.0, "", 2);
             },
         );
 
-        card(
+        setting_row(
             ui,
-            width,
-            "Posisi kartu",
-            Some("Klik salah satu sel untuk menempatkan kartu."),
+            icons::DROP,
+            "Blur radius",
+            "Backdrop blur behind the card only.",
             |ui| {
-                position_grid(ui, &mut self.cfg.card.position);
-                ui.add_space(10.0);
-                let mut custom = self.cfg.card.position == Position::Custom;
-                if ui
-                    .checkbox(
-                        &mut custom,
-                        RichText::new("Posisi custom (offset piksel)").size(12.5),
-                    )
-                    .changed()
-                {
-                    self.cfg.card.position = if custom {
-                        Position::Custom
-                    } else {
-                        Position::Center
-                    };
-                }
-                if self.cfg.card.position == Position::Custom {
-                    ui.add_space(8.0);
-                    ui.add(
-                        egui::Slider::new(&mut self.cfg.card.offset_x, -1200..=1200)
-                            .text("Offset X (px)"),
-                    );
-                    ui.add(
-                        egui::Slider::new(&mut self.cfg.card.offset_y, -800..=800)
-                            .text("Offset Y (px)"),
-                    );
-                }
+                slider_with_badge(ui, &mut self.cfg.card.blur_radius, 0.0..=50.0, " px", 0);
             },
         );
+
+        setting_row(
+            ui,
+            icons::SQUARE,
+            "Card corner radius",
+            "Rounded corners of the card.",
+            |ui| {
+                slider_with_badge(ui, &mut self.cfg.card.corner_radius, 0.0..=80.0, " px", 0);
+            },
+        );
+
+        setting_row(
+            ui,
+            icons::PALETTE,
+            "Card tint",
+            "Base color blended over the blurred backdrop.",
+            |ui| {
+                color_control(ui, &mut self.cfg.card.tint_color);
+            },
+        );
+
+        setting_row(
+            ui,
+            icons::CROSSHAIR,
+            "Position",
+            "Where the card sits on the desktop.",
+            |ui| {
+                dropdown(
+                    ui,
+                    "position",
+                    &mut self.cfg.card.position,
+                    &[
+                        (Position::Center, "Center"),
+                        (Position::TopLeft, "Top left"),
+                        (Position::TopRight, "Top right"),
+                        (Position::BottomLeft, "Bottom left"),
+                        (Position::BottomRight, "Bottom right"),
+                        (Position::Custom, "Custom offset"),
+                    ],
+                );
+            },
+        );
+
+        if self.cfg.card.position == Position::Custom {
+            setting_row(
+                ui,
+                icons::ARROWS_HORIZONTAL,
+                "Offset X",
+                "Horizontal shift from the center, in pixels.",
+                |ui| {
+                    ui.add_sized(
+                        [170.0, CONTROL_H],
+                        egui::Slider::new(&mut self.cfg.card.offset_x, -1200..=1200),
+                    );
+                },
+            );
+            setting_row(
+                ui,
+                icons::ARROWS_VERTICAL,
+                "Offset Y",
+                "Vertical shift from the center, in pixels.",
+                |ui| {
+                    ui.add_sized(
+                        [170.0, CONTROL_H],
+                        egui::Slider::new(&mut self.cfg.card.offset_y, -800..=800),
+                    );
+                },
+            );
+        }
     }
 
-    fn tab_track(&mut self, ui: &mut egui::Ui, width: f32) {
-        card(
+    fn tab_track(&mut self, ui: &mut egui::Ui) {
+        setting_row(
             ui,
-            width,
-            "Tema warna",
-            Some("Preset siap pakai; klik untuk menerapkan."),
+            icons::PALETTE,
+            "Palette preset",
+            "Five-level color ramp for the heatmap.",
             |ui| {
-                let current = self.cfg.track.colors.clone();
-                for (name, colors) in PALETTES {
-                    let selected = current
-                        .iter()
-                        .zip(colors.iter())
-                        .all(|(a, b)| a.eq_ignore_ascii_case(b));
-                    if Frame::none()
-                        .fill(if selected { accent_fill() } else { INPUT })
-                        .stroke(pen(
-                            1.0,
-                            if selected { ACCENT } else { BORDER },
-                        ))
-                        .rounding(Rounding::same(8.0))
-                        .inner_margin(Margin::symmetric(10.0, 8.0))
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.set_width(ui.available_width());
-                                ui.label(
-                                    RichText::new(*name)
-                                        .size(12.5)
-                                        .color(if selected { TEXT } else { MUTED }),
-                                );
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    for hex in colors.iter().rev() {
-                                        swatch(ui, hex, 14.0, false);
-                                    }
-                                });
-                            });
-                        })
-                        .response
-                        .interact(Sense::click())
-                        .on_hover_text("Terapkan tema ini")
-                        .clicked()
-                    {
-                        for (slot, hex) in self.cfg.track.colors.iter_mut().zip(colors.iter()) {
-                            *slot = (*hex).to_string();
-                        }
-                    }
-                    ui.add_space(6.0);
-                }
+                preset_control(ui, &mut self.cfg.track.colors);
             },
         );
 
-        card(
+        let mut colors = self.cfg.track.colors.clone();
+        for (i, slot) in colors.iter_mut().enumerate() {
+            let label = if i == 0 {
+                "Level 0 color".to_string()
+            } else {
+                format!("Level {i} color")
+            };
+            let desc = if i == 0 {
+                "No contributions."
+            } else if i == 4 {
+                "Densest day."
+            } else {
+                "Intermediate intensity."
+            };
+            setting_row(ui, icons::SQUARE, &label, desc, |ui| {
+                color_control(ui, slot);
+            });
+        }
+        if colors != self.cfg.track.colors {
+            self.cfg.track.colors = colors;
+        }
+
+        setting_row(
             ui,
-            width,
-            "Level warna",
-            Some("Level 0 = tanpa kontribusi, level 4 = paling padat."),
+            icons::GRID_FOUR,
+            "Box size",
+            "Heatmap cell size in pixels.",
             |ui| {
-                let last = self.cfg.track.colors.len() - 1;
-                for (i, slot) in self.cfg.track.colors.iter_mut().enumerate() {
-                    let mut hex = slot.clone();
-                    if color_field(ui, &format!("Level {i}"), &mut hex) {
-                        *slot = hex;
-                    }
-                    if i < last {
-                        ui.add_space(8.0);
-                    }
-                }
+                slider_with_badge(ui, &mut self.cfg.track.box_size, 6.0..=40.0, " px", 1);
+            },
+        );
+        setting_row(
+            ui,
+            icons::GRID_FOUR,
+            "Box gap",
+            "Spacing between cells.",
+            |ui| {
+                slider_with_badge(ui, &mut self.cfg.track.box_gap, 0.0..=12.0, " px", 1);
+            },
+        );
+        setting_row(
+            ui,
+            icons::SQUARE,
+            "Box corner radius",
+            "0 gives sharp squares, half the box size gives circles.",
+            |ui| {
+                slider_with_badge(ui, &mut self.cfg.track.box_radius, 0.0..=20.0, " px", 1);
             },
         );
 
-        card(
+        setting_row(
             ui,
-            width,
-            "Kotak & header",
-            Some("Ukuran grid heatmap 53 x 7."),
+            icons::TEXT_T,
+            "Stats header",
+            "Show total contributions, streak, and best day above the grid.",
             |ui| {
-                slider_row(
-                    ui,
-                    "Ukuran kotak",
-                    &mut self.cfg.track.box_size,
-                    6.0..=40.0,
-                    " px",
-                    1,
-                );
-                ui.add_space(10.0);
-                slider_row(
-                    ui,
-                    "Jarak antar kotak",
-                    &mut self.cfg.track.box_gap,
-                    0.0..=12.0,
-                    " px",
-                    1,
-                );
-                ui.add_space(10.0);
-                slider_row(
-                    ui,
-                    "Radius kotak",
-                    &mut self.cfg.track.box_radius,
-                    0.0..=20.0,
-                    " px",
-                    1,
-                );
-                ui.add_space(12.0);
-                ui.checkbox(
+                ui.add(egui::Checkbox::without_text(
                     &mut self.cfg.track.show_stats_header,
-                    RichText::new("Tampilkan header statistik").size(12.5),
-                );
-                ui.add_space(10.0);
-                color_field(ui, "Warna teks header", &mut self.cfg.track.text_color);
+                ));
             },
         );
 
-        card(
+        setting_row(
             ui,
-            width,
-            "Sistem",
-            Some("Berjalan tanpa hak administrator."),
+            icons::PALETTE,
+            "Header text color",
+            "Used by the stats line only.",
             |ui| {
-                ui.checkbox(
+                color_control(ui, &mut self.cfg.track.text_color);
+            },
+        );
+
+        setting_row(
+            ui,
+            icons::POWER,
+            "Start with Windows",
+            "Adds a per-user Run entry; no administrator rights required.",
+            |ui| {
+                ui.add(egui::Checkbox::without_text(
                     &mut self.cfg.start_with_windows,
-                    RichText::new("Jalankan otomatis saat Windows login").size(12.5),
-                );
-                ui.add_space(10.0);
-                helper_text(ui, &format!("Config: {}", config::config_path().display()));
-                helper_text(ui, &format!("Cache: {}", config::cache_path().display()));
+                ));
+            },
+        );
+
+        setting_row(
+            ui,
+            icons::FOLDER_SIMPLE,
+            "Files",
+            "Config and cache locations.",
+            |ui| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new(config::config_path().display().to_string())
+                            .size(11.0)
+                            .color(MUTED)
+                            .monospace(),
+                    );
+                    ui.label(
+                        RichText::new(config::cache_path().display().to_string())
+                            .size(11.0)
+                            .color(MUTED)
+                            .monospace(),
+                    );
+                });
             },
         );
     }
@@ -974,114 +962,194 @@ impl SettingsApp {
 
 impl eframe::App for SettingsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.draw_nav(ctx);
-        self.draw_preview_panel(ctx);
-        self.draw_form(ctx);
-
         if self.last_rendered.as_ref() != Some(&self.cfg) {
-            let width = PREVIEW_WIDTH - 48.0;
-            self.rebuild_preview(ctx, width);
+            self.preview(ctx);
         }
-        self.draw_toast(ctx);
+        self.draw_sidebar(ctx);
+        self.draw_footer(ctx);
+        self.draw_content(ctx);
+
+        if let Some(toast) = &self.toast {
+            let remaining = toast.until.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                self.toast = None;
+            } else {
+                ctx.request_repaint_after(remaining);
+            }
+        }
     }
 }
 
 // ------------------------------------------------------------------ widgets
 
-fn nav_row(ui: &mut egui::Ui, value: Tab, icon: &str, label: &str, current: &mut Tab) {
-    let selected = *current == value;
-    let text = RichText::new(format!("{icon}   {label}"))
-        .size(13.0)
-        .color(if selected { TEXT } else { MUTED });
-    let button = Button::new(text)
-        .fill(if selected { accent_fill() } else { Color32::TRANSPARENT })
-        .stroke(Stroke::NONE)
-        .rounding(Rounding::same(8.0))
-        .min_size(Vec2::new(ui.available_width(), 36.0));
-    if ui.add(button).clicked() {
-        *current = value;
+fn toast_style(kind: ToastKind) -> (Color32, &'static str) {
+    match kind {
+        ToastKind::Success => (ACCENT, icons::CHECK_CIRCLE),
+        ToastKind::Error => (DANGER, icons::WARNING),
+        ToastKind::Info => (MUTED, icons::INFO),
     }
 }
 
-fn badge_row(ui: &mut egui::Ui, label: &str, value: &str, ok: Option<bool>) {
-    let dot = match ok {
-        Some(true) => ACCENT,
-        Some(false) => MUTED,
-        None => WARN,
-    };
-    Frame::none()
-        .fill(INPUT)
-        .stroke(pen(1.0, BORDER))
-        .rounding(Rounding::same(6.0))
-        .inner_margin(Margin::symmetric(8.0, 5.0))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let (rect, _) =
-                    ui.allocate_exact_size(Vec2::splat(6.0), Sense::hover());
-                ui.painter().circle_filled(rect.center(), 3.0, dot);
-                ui.label(RichText::new(label).size(10.5).color(MUTED));
-                ui.label(RichText::new(value).size(10.5).color(TEXT));
-            });
-        });
+fn nav_item(ui: &mut egui::Ui, value: Tab, icon: &str, label: &str, current: &mut Tab) {
+    let selected = *current == value;
+    let width = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 36.0), Sense::click());
+    let hovered = response.hovered();
+
+    let painter = ui.painter();
+    if selected {
+        painter.rect_filled(rect, Rounding::same(4.0), NAV_ACTIVE);
+        // 3 x 16 accent pill on the far-left edge.
+        let pill = egui::Rect::from_min_size(
+            egui::pos2(rect.left() + 2.0, rect.center().y - 8.0),
+            Vec2::new(3.0, 16.0),
+        );
+        painter.rect_filled(pill, Rounding::same(1.5), ACCENT);
+    } else if hovered {
+        painter.rect_filled(rect, Rounding::same(4.0), CARD_HOVER);
+    }
+
+    let text_color = if selected { TEXT } else { MUTED };
+    let text_pos = egui::pos2(rect.left() + 16.0, rect.center().y);
+    ui.painter().text(
+        text_pos,
+        egui::Align2::LEFT_CENTER,
+        icon,
+        FontId::new(15.0, FontFamily::Proportional),
+        text_color,
+    );
+    ui.painter().text(
+        egui::pos2(rect.left() + 40.0, text_pos.y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        FontId::new(14.0, FontFamily::Proportional),
+        text_color,
+    );
+
+    if response.clicked() {
+        *current = value;
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    ui.add_space(4.0);
 }
 
-#[allow(clippy::too_many_arguments)]
-fn card<R>(
+fn setting_row(
     ui: &mut egui::Ui,
-    outer_width: f32,
+    icon: &str,
     title: &str,
-    subtitle: Option<&str>,
-    add: impl FnOnce(&mut egui::Ui) -> R,
-) -> R {
-    let inner_width = (outer_width - CARD_PAD_X * 2.0).max(120.0);
-    let mut out = None;
-    Frame::none()
-        .fill(SURFACE)
-        .stroke(pen(1.0, BORDER))
-        .rounding(Rounding::same(10.0))
-        .inner_margin(Margin::symmetric(CARD_PAD_X, CARD_PAD_Y))
+    desc: &str,
+    control: impl FnOnce(&mut egui::Ui),
+) {
+    let response = Frame::none()
+        .fill(CARD)
+        .stroke(pen(1.0, hair()))
+        .rounding(Rounding::same(5.0))
+        .inner_margin(Margin::symmetric(ROW_PAD_X, ROW_PAD_Y))
         .show(ui, |ui| {
-            ui.set_width(inner_width);
-            ui.label(RichText::new(title).size(14.0).strong().color(TEXT));
-            if let Some(sub) = subtitle {
-                ui.label(RichText::new(sub).size(11.0).color(MUTED));
-            }
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(icon).size(16.0).color(MUTED));
+                ui.add_space(10.0);
+                ui.vertical(|ui| {
+                    ui.label(RichText::new(title).size(14.0).color(TEXT));
+                    if !desc.is_empty() {
+                        ui.add(
+                            egui::Label::new(RichText::new(desc).size(12.0).color(MUTED)).wrap(),
+                        );
+                    }
+                });
+                ui.with_layout(Layout::right_to_left(Align::Center), control);
+            });
+        })
+        .response;
+
+    if response.hovered() {
+        ui.painter()
+            .rect_stroke(response.rect, Rounding::same(5.0), pen(1.0, hair_strong()));
+    }
+    ui.add_space(4.0);
+}
+
+fn setting_row_stacked(
+    ui: &mut egui::Ui,
+    icon: &str,
+    title: &str,
+    desc: &str,
+    body: impl FnOnce(&mut egui::Ui),
+) {
+    let response = Frame::none()
+        .fill(CARD)
+        .stroke(pen(1.0, hair()))
+        .rounding(Rounding::same(5.0))
+        .inner_margin(Margin::symmetric(ROW_PAD_X, ROW_PAD_Y))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(icon).size(16.0).color(MUTED));
+                ui.add_space(10.0);
+                ui.vertical(|ui| {
+                    ui.label(RichText::new(title).size(14.0).color(TEXT));
+                    if !desc.is_empty() {
+                        ui.add(
+                            egui::Label::new(RichText::new(desc).size(12.0).color(MUTED)).wrap(),
+                        );
+                    }
+                });
+            });
             ui.add_space(10.0);
-            out = Some(add(ui));
-        });
-    ui.add_space(12.0);
-    out.expect("card body always runs")
-}
+            body(ui);
+        })
+        .response;
 
-fn section_label(ui: &mut egui::Ui, text: &str) {
-    ui.label(RichText::new(text).size(12.0).strong().color(TEXT));
+    if response.hovered() {
+        ui.painter()
+            .rect_stroke(response.rect, Rounding::same(5.0), pen(1.0, hair_strong()));
+    }
     ui.add_space(4.0);
 }
 
-fn helper_text(ui: &mut egui::Ui, text: &str) {
-    ui.add_space(4.0);
-    ui.add(egui::Label::new(RichText::new(text).size(10.8).color(MUTED)).wrap());
+fn text_field(ui: &mut egui::Ui, text: &mut String, hint: &str) -> egui::Response {
+    let response = ui.add_sized(
+        [ui.available_width(), CONTROL_H],
+        egui::TextEdit::singleline(text)
+            .hint_text(hint)
+            .margin(Margin::symmetric(8.0, 5.0)),
+    );
+    if response.has_focus() {
+        // WinUI text box: 2 px accent underline while focused.
+        let r = response.rect;
+        let line = egui::Rect::from_min_max(
+            egui::pos2(r.left(), r.bottom() - 2.0),
+            egui::pos2(r.right(), r.bottom()),
+        );
+        ui.painter().rect_filled(line, Rounding::same(1.0), ACCENT);
+    }
+    response
 }
 
 fn segmented<T: Copy + PartialEq>(ui: &mut egui::Ui, current: &mut T, options: &[(T, &str)]) {
     Frame::none()
         .fill(INPUT)
-        .stroke(pen(1.0, BORDER))
-        .rounding(Rounding::same(8.0))
-        .inner_margin(Margin::same(4.0))
+        .stroke(pen(1.0, hair()))
+        .rounding(Rounding::same(4.0))
+        .inner_margin(Margin::same(3.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                for (value, text) in options {
+                for (value, label) in options {
                     let selected = *current == *value;
-                    let button = Button::new(
-                        RichText::new(*text)
-                            .size(12.0)
-                            .color(if selected { TEXT } else { MUTED }),
-                    )
-                    .fill(if selected { accent_fill() } else { Color32::TRANSPARENT })
+                    let button = Button::new(RichText::new(*label).size(12.0).color(if selected {
+                        TEXT
+                    } else {
+                        MUTED
+                    }))
+                    .fill(if selected {
+                        SECONDARY_BG
+                    } else {
+                        Color32::TRANSPARENT
+                    })
                     .stroke(Stroke::NONE)
-                    .rounding(Rounding::same(6.0))
-                    .min_size(Vec2::new(0.0, 26.0));
+                    .rounding(Rounding::same(3.0))
+                    .min_size(Vec2::new(0.0, 24.0));
                     if ui.add(button).clicked() && !selected {
                         *current = *value;
                     }
@@ -1090,211 +1158,141 @@ fn segmented<T: Copy + PartialEq>(ui: &mut egui::Ui, current: &mut T, options: &
         });
 }
 
-fn slider_row(
+fn dropdown<T: Copy + PartialEq>(
     ui: &mut egui::Ui,
-    label: &str,
+    id: &str,
+    current: &mut T,
+    options: &[(T, &str)],
+) {
+    let selected_text = options
+        .iter()
+        .find(|(value, _)| value == current)
+        .map(|(_, label)| *label)
+        .unwrap_or("");
+    egui::ComboBox::from_id_salt(id)
+        .width(160.0)
+        .selected_text(RichText::new(selected_text).size(12.5).color(TEXT))
+        .show_ui(ui, |ui| {
+            for (value, label) in options {
+                if ui
+                    .selectable_label(*current == *value, RichText::new(*label).size(12.5))
+                    .clicked()
+                {
+                    *current = *value;
+                }
+            }
+        });
+}
+
+fn slider_with_badge(
+    ui: &mut egui::Ui,
     value: &mut f32,
     range: std::ops::RangeInclusive<f32>,
     suffix: &str,
     decimals: usize,
 ) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(label).size(12.0).color(TEXT));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let text = format!("{value:.*}{suffix}", decimals);
-            Frame::none()
-                .fill(INPUT)
-                .stroke(pen(1.0, BORDER))
-                .rounding(Rounding::same(6.0))
-                .inner_margin(Margin::symmetric(8.0, 3.0))
-                .show(ui, |ui| {
-                    ui.label(RichText::new(text).size(11.0).color(TEXT));
-                });
+    let text = format!("{value:.*}{suffix}", decimals);
+    // right-to-left: badge first (rightmost), then the slider to its left.
+    Frame::none()
+        .fill(INPUT)
+        .stroke(pen(1.0, hair()))
+        .rounding(Rounding::same(4.0))
+        .inner_margin(Margin::symmetric(8.0, 3.0))
+        .show(ui, |ui| {
+            ui.label(RichText::new(text).size(11.5).color(TEXT).monospace());
         });
-    });
     ui.add_sized(
-        [ui.available_width(), 20.0],
-        egui::Slider::new(value, range).show_value(false),
+        [170.0, 26.0],
+        egui::Slider::new(value, range)
+            .show_value(false)
+            .trailing_fill(true),
     );
 }
 
-fn slider_row_u32(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut u32,
-    range: std::ops::RangeInclusive<u32>,
-    suffix: &str,
-) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(label).size(12.0).color(TEXT));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            Frame::none()
-                .fill(INPUT)
-                .stroke(pen(1.0, BORDER))
-                .rounding(Rounding::same(6.0))
-                .inner_margin(Margin::symmetric(8.0, 3.0))
-                .show(ui, |ui| {
-                    ui.label(
-                        RichText::new(format!("{value}{suffix}"))
-                            .size(11.0)
-                            .color(TEXT),
-                    );
-                });
-        });
-    });
-    ui.add_sized(
-        [ui.available_width(), 20.0],
-        egui::Slider::new(value, range).show_value(false),
-    );
-}
-
-fn color_field(ui: &mut egui::Ui, label: &str, hex: &mut String) -> bool {
-    let mut changed = false;
-    ui.horizontal(|ui| {
-        let mut value = parse_hex(hex).unwrap_or(0x101010);
-        let mut srgb = [
-            ((value >> 16) & 0xff) as u8,
-            ((value >> 8) & 0xff) as u8,
-            (value & 0xff) as u8,
-        ];
-        if ui.color_edit_button_srgb(&mut srgb).changed() {
-            value = ((srgb[0] as u32) << 16) | ((srgb[1] as u32) << 8) | srgb[2] as u32;
-            *hex = to_hex(value);
-            changed = true;
-        }
-        ui.label(RichText::new(label).size(12.0).color(TEXT));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let resp = ui.add_sized(
-                [96.0, 26.0],
-                egui::TextEdit::singleline(hex).font(TextStyle::Monospace),
-            );
-            changed |= resp.changed();
-        });
-    });
-    changed
-}
-
-fn swatch(ui: &mut egui::Ui, hex: &str, size: f32, ring: bool) {
-    let (rgb_r, rgb_g, rgb_b) = config::rgb(hex, 0x161b22);
-    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
-    ui.painter().rect_filled(
-        rect,
-        Rounding::same(4.0),
-        Color32::from_rgb(rgb_r, rgb_g, rgb_b),
-    );
-    if ring {
-        ui.painter()
-            .rect_stroke(rect, Rounding::same(4.0), pen(1.5, ACCENT));
-    }
-}
-
-fn position_grid(ui: &mut egui::Ui, current: &mut Position) {
-    const CELL: f32 = 34.0;
-    let mut chosen: Option<Position> = None;
-    // Row 1, row 3 and the middle cell are live; the rest are placeholders to keep
-    // a 3x3 rhythm without inventing enum values that do not exist.
-    let grid: [[Option<(Position, &str)>; 3]; 3] = [
-        [
-            Some((Position::TopLeft, "Kiri atas")),
-            None,
-            Some((Position::TopRight, "Kanan atas")),
-        ],
-        [None, Some((Position::Center, "Tengah")), None],
-        [
-            Some((Position::BottomLeft, "Kiri bawah")),
-            None,
-            Some((Position::BottomRight, "Kanan bawah")),
-        ],
+fn color_control(ui: &mut egui::Ui, hex: &mut String) {
+    let mut value = parse_hex(hex).unwrap_or(0x101010);
+    let mut srgb = [
+        ((value >> 16) & 0xff) as u8,
+        ((value >> 8) & 0xff) as u8,
+        (value & 0xff) as u8,
     ];
+    if ui
+        .add_sized([34.0, CONTROL_H], ColorButton::new(&mut srgb))
+        .on_hover_text(hex.clone())
+        .changed()
+    {
+        value = ((srgb[0] as u32) << 16) | ((srgb[1] as u32) << 8) | srgb[2] as u32;
+        *hex = to_hex(value);
+    }
+    ui.label(
+        RichText::new(hex.clone())
+            .size(11.5)
+            .color(MUTED)
+            .monospace(),
+    );
+}
 
-    for row in grid {
-        ui.horizontal(|ui| {
-            for cell in row {
-                match cell {
-                    Some((value, tip)) => {
-                        let selected = *current == value;
-                        let (rect, resp) =
-                            ui.allocate_exact_size(Vec2::splat(CELL), Sense::click());
-                        let fill = if selected { accent_fill() } else { INPUT };
-                        let stroke = pen(
-                            1.0,
-                            if selected { ACCENT } else { BORDER },
-                        );
-                        ui.painter().rect_filled(rect, Rounding::same(6.0), fill);
-                        ui.painter()
-                            .rect_stroke(rect, Rounding::same(6.0), stroke);
-                        let dot = rect.shrink(CELL * 0.36);
-                        ui.painter().rect_filled(
-                            dot,
-                            Rounding::same(2.0),
-                            if selected { ACCENT } else { MUTED },
-                        );
-                        if resp.on_hover_text(tip).clicked() {
-                            chosen = Some(value);
-                        }
-                    }
-                    None => {
-                        let (rect, _) =
-                            ui.allocate_exact_size(Vec2::splat(CELL), Sense::hover());
-                        ui.painter().rect_stroke(
-                            rect,
-                            Rounding::same(6.0),
-                            pen(1.0, BORDER.gamma_multiply(0.5)),
-                        );
+fn preset_control(ui: &mut egui::Ui, colors: &mut [String; 5]) {
+    let current = PALETTES
+        .iter()
+        .find(|(_, preset)| {
+            colors
+                .iter()
+                .zip(preset.iter())
+                .all(|(a, b)| a.eq_ignore_ascii_case(b))
+        })
+        .map(|(name, _)| *name)
+        .unwrap_or("Custom");
+
+    egui::ComboBox::from_id_salt("palette")
+        .width(130.0)
+        .selected_text(RichText::new(current).size(12.5).color(TEXT))
+        .show_ui(ui, |ui| {
+            for (name, preset) in PALETTES {
+                if ui
+                    .selectable_label(current == *name, RichText::new(*name).size(12.5))
+                    .clicked()
+                {
+                    for (slot, hex) in colors.iter_mut().zip(preset.iter()) {
+                        *slot = (*hex).to_string();
                     }
                 }
             }
         });
-    }
-    if let Some(pos) = chosen {
-        *current = pos;
-    }
-}
 
-fn info_row(ui: &mut egui::Ui, key: &str, value: &str) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(key).size(10.8).color(MUTED));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(RichText::new(value).size(10.8).color(TEXT));
-        });
-    });
-}
-
-fn material_name(kind: MaterialKind) -> &'static str {
-    match kind {
-        MaterialKind::None => "None",
-        MaterialKind::Solid => "Solid",
-        MaterialKind::Glass => "Glass",
-        MaterialKind::Acrylic => "Acrylic",
-        MaterialKind::Mica => "Mica",
+    // Current ramp swatches, drawn left of the dropdown.
+    for hex in colors.iter().rev() {
+        let (r, g, b) = config::rgb(hex, 0x161b22);
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(12.0), Sense::hover());
+        ui.painter()
+            .rect_filled(rect, Rounding::same(3.0), Color32::from_rgb(r, g, b));
     }
 }
 
 fn material_hint(kind: MaterialKind) -> &'static str {
     match kind {
-        MaterialKind::None => "Tanpa kartu: heatmap langsung menempel di desktop.",
-        MaterialKind::Solid => "Kartu legap berwarna tint, tanpa blur backdrop.",
-        MaterialKind::Glass => "Backdrop blur + tint tipis + garis tepi halus.",
-        MaterialKind::Acrylic => "Glass dengan grain monokrom deterministik.",
-        MaterialKind::Mica => "Blur ringan dan desaturasi, mirip Mica Windows 11.",
+        MaterialKind::None => "No card: the heatmap sits directly on the wallpaper.",
+        MaterialKind::Solid => "Opaque tinted card, no backdrop blur.",
+        MaterialKind::Glass => "Backdrop blur, thin tint, and a soft 1 px edge.",
+        MaterialKind::Mica => "Light blur and desaturation, close to Windows 11 Mica.",
+        MaterialKind::Acrylic => "Glass plus deterministic monochrome grain.",
     }
 }
 
-fn position_name(pos: Position) -> &'static str {
-    match pos {
-        Position::Center => "Tengah",
-        Position::TopLeft => "Kiri atas",
-        Position::TopRight => "Kanan atas",
-        Position::BottomLeft => "Kiri bawah",
-        Position::BottomRight => "Kanan bawah",
-        Position::Custom => "Custom",
+/// Small square color button; wraps `ui.color_edit_button_srgb` with a fixed
+/// size so rows line up.
+struct ColorButton<'a> {
+    srgb: &'a mut [u8; 3],
+}
+
+impl<'a> ColorButton<'a> {
+    fn new(srgb: &'a mut [u8; 3]) -> Self {
+        Self { srgb }
     }
 }
 
-
-/// `Stroke::new` takes `impl Into<f32>`, so bare float literals default to
-/// `f64` and warn. Funneling every stroke through an `f32` parameter keeps the
-/// call sites suffix-free and the build warning-free.
-fn pen(width: f32, color: Color32) -> Stroke {
-    Stroke::new(width, color)
+impl egui::Widget for ColorButton<'_> {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        ui.color_edit_button_srgb(self.srgb)
+    }
 }

@@ -87,11 +87,7 @@ pub fn apply_card(
                     continue;
                 }
                 let i = (row * rw + col) * 4;
-                let (sr, sg, sb) = (
-                    region[i] as f32,
-                    region[i + 1] as f32,
-                    region[i + 2] as f32,
-                );
+                let (sr, sg, sb) = (region[i] as f32, region[i + 1] as f32, region[i + 2] as f32);
                 let out = (
                     sr + (tint.0 as f32 - sr) * tint_a,
                     sg + (tint.1 as f32 - sg) * tint_a,
@@ -249,4 +245,3 @@ fn desaturate(data: &mut [u8], factor: f32) {
         }
     }
 }
-

@@ -7,7 +7,8 @@ fn main() {
     println!("cargo:rerun-if-changed=assets/icon.ico");
     // The manifest carries DPI awareness; treat a missing rc.exe as a hard warning
     // so the loss of per-monitor DPI is visible instead of silent.
-    if let Err(e) = embed_resource::compile("assets/app.rc", embed_resource::NONE).manifest_required()
+    if let Err(e) =
+        embed_resource::compile("assets/app.rc", embed_resource::NONE).manifest_required()
     {
         println!("cargo:warning=embed_resource: {e}");
     }
