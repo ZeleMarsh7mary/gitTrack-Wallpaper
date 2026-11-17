@@ -1,14 +1,22 @@
 //! Configuration schema, defaults, validation and file locations.
 //!
-//! Stored at `%APPDATA%\GitWallpaper\config.toml`. The GitHub token is never
+//! Stored at `%APPDATA%\GitTrackWallpaper\config.toml`. The GitHub token is never
 //! written in plaintext: [`crate::security`] wraps it with Windows DPAPI and the
 //! base64 blob goes into `source.encrypted_api_key`.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Once;
 
-pub const APP_DIR: &str = "GitWallpaper";
+/// Directory name under `%APPDATA%` and `%LOCALAPPDATA%`. No spaces: it ends up
+/// in paths handed to Win32 and Inno Setup, and quoting bugs are not worth it.
+pub const APP_DIR: &str = "GitTrackWallpaper";
+/// Directory used before the 0.1.0 rename. Migrated once, then never touched.
+const LEGACY_APP_DIR: &str = "GitWallpaper";
+
+static MIGRATED_APPDATA: Once = Once::new();
+static MIGRATED_LOCAL: Once = Once::new();
 pub const CACHE_VERSION: u32 = 1;
 
 /// Built-in heatmap palettes: (name, [level0..level4]).
@@ -284,11 +292,15 @@ fn env_dir(var: &str) -> PathBuf {
 }
 
 pub fn appdata_dir() -> PathBuf {
-    env_dir("APPDATA").join(APP_DIR)
+    let base = env_dir("APPDATA");
+    MIGRATED_APPDATA.call_once(|| migrate_legacy_dir(&base));
+    base.join(APP_DIR)
 }
 
 pub fn local_data_dir() -> PathBuf {
-    env_dir("LOCALAPPDATA").join(APP_DIR)
+    let base = env_dir("LOCALAPPDATA");
+    MIGRATED_LOCAL.call_once(|| migrate_legacy_dir(&base));
+    base.join(APP_DIR)
 }
 
 pub fn config_path() -> PathBuf {
@@ -301,6 +313,29 @@ pub fn cache_path() -> PathBuf {
 
 pub fn wallpaper_path() -> PathBuf {
     local_data_dir().join("current_wallpaper.png")
+}
+
+/// Move a pre-rename data directory into place, once per process.
+///
+/// The GitHub token is a DPAPI blob, so silently starting from defaults would
+/// mean asking the user to paste it again. A rename keeps file identity; the
+/// copy fallback covers a directory that is still locked by an older build.
+fn migrate_legacy_dir(base: &Path) {
+    let new_dir = base.join(APP_DIR);
+    let old_dir = base.join(LEGACY_APP_DIR);
+    if new_dir.exists() || !old_dir.exists() {
+        return;
+    }
+    if fs::rename(&old_dir, &new_dir).is_ok() {
+        return;
+    }
+    let _ = fs::create_dir_all(&new_dir);
+    for name in ["config.toml", "cache.json"] {
+        let from = old_dir.join(name);
+        if from.is_file() {
+            let _ = fs::copy(&from, new_dir.join(name));
+        }
+    }
 }
 
 /// Write via a sibling temp file + rename so a crash never truncates the target.

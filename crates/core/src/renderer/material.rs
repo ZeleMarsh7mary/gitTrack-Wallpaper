@@ -225,7 +225,7 @@ fn blur_cols(src: &[u8], dst: &mut [u8], w: usize, h: usize, r: usize) {
 /// Deterministic monochrome grain, +-`amount`/255 around the base colour.
 fn add_noise(data: &mut [u8], seed: u64, amount: i32) {
     let mut state = seed | 1;
-    for px in data.chunks_exact_mut(4) {
+    for px in data.as_chunks_mut::<4>().0 {
         state ^= state << 13;
         state ^= state >> 7;
         state ^= state << 17;
@@ -237,7 +237,7 @@ fn add_noise(data: &mut [u8], seed: u64, amount: i32) {
 }
 
 fn desaturate(data: &mut [u8], factor: f32) {
-    for px in data.chunks_exact_mut(4) {
+    for px in data.as_chunks_mut::<4>().0 {
         let l = 0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32;
         for c in px.iter_mut().take(3) {
             let v = *c as f32;

@@ -170,7 +170,7 @@ mod tests {
         assert_eq!(pm.width(), 640);
         assert_eq!(pm.height(), 360);
         assert!(
-            pm.data().chunks_exact(4).all(|px| px[3] == 255),
+            pm.data().as_chunks::<4>().0.iter().all(|px| px[3] == 255),
             "wallpaper must be fully opaque"
         );
         let stride = 640 * 4;

@@ -8,7 +8,12 @@ use windows::Win32::Security::Cryptography::{
     CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB,
 };
 
-const ENTROPY: &[u8] = b"GitWallpaper/v1";
+/// DPAPI entropy. It binds the blob to this application; it is not a secret.
+const ENTROPY: &[u8] = b"GitTrackWallpaper/v1";
+/// Entropy used before the 0.1.0 rename. Read-only fallback so an existing
+/// token keeps working after the upgrade; the next save re-encrypts with the
+/// current entropy.
+const LEGACY_ENTROPY: &[u8] = b"GitWallpaper/v1";
 
 fn blob_from(bytes: &mut [u8]) -> CRYPT_INTEGER_BLOB {
     CRYPT_INTEGER_BLOB {
@@ -29,11 +34,15 @@ fn take_blob(blob: CRYPT_INTEGER_BLOB) -> Vec<u8> {
 
 /// Encrypt a secret; empty input yields an empty string (no blob for "unset").
 pub fn encrypt(plain: &str) -> Result<String, String> {
+    protect(plain, ENTROPY)
+}
+
+fn protect(plain: &str, entropy_bytes: &[u8]) -> Result<String, String> {
     if plain.is_empty() {
         return Ok(String::new());
     }
     let mut input = plain.as_bytes().to_vec();
-    let mut entropy = ENTROPY.to_vec();
+    let mut entropy = entropy_bytes.to_vec();
     let blob_in = blob_from(&mut input);
     let blob_entropy = blob_from(&mut entropy);
     let mut blob_out = CRYPT_INTEGER_BLOB::default();
@@ -56,14 +65,23 @@ pub fn encrypt(plain: &str) -> Result<String, String> {
     Ok(STANDARD.encode(out))
 }
 
+/// Decrypt a stored blob. Tries the current entropy first, then the pre-rename
+/// one, so upgrading from 0.0.x never costs the user a re-pasted token.
 pub fn decrypt(b64: &str) -> Result<String, String> {
     if b64.trim().is_empty() {
         return Ok(String::new());
     }
+    match unprotect(b64, ENTROPY) {
+        Ok(plain) => Ok(plain),
+        Err(current) => unprotect(b64, LEGACY_ENTROPY).map_err(|_| current),
+    }
+}
+
+fn unprotect(b64: &str, entropy_bytes: &[u8]) -> Result<String, String> {
     let mut raw = STANDARD
         .decode(b64.trim())
         .map_err(|e| format!("base64 token: {e}"))?;
-    let mut entropy = ENTROPY.to_vec();
+    let mut entropy = entropy_bytes.to_vec();
     let blob_in = blob_from(&mut raw);
     let blob_entropy = blob_from(&mut entropy);
     let mut blob_out = CRYPT_INTEGER_BLOB::default();
@@ -96,6 +114,15 @@ mod tests {
         assert!(!enc.is_empty());
         assert_ne!(enc, secret);
         assert_eq!(decrypt(&enc).expect("decrypt"), secret);
+    }
+
+    #[test]
+    fn legacy_entropy_blob_still_decrypts() {
+        // A blob written by the pre-rename build must survive the upgrade; the
+        // token was re-pasted often enough already.
+        let secret = "ghp_from_the_old_build";
+        let legacy = protect(secret, LEGACY_ENTROPY).expect("encrypt with legacy entropy");
+        assert_eq!(decrypt(&legacy).expect("decrypt legacy blob"), secret);
     }
 
     #[test]

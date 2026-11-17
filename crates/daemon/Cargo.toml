@@ -1,17 +1,18 @@
 [package]
-name = "git-wallpaper-daemon"
+name = "git-track-wallpaper-daemon"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description.workspace = true
+license.workspace = true
+description = "GitTrack Wallpaper background daemon: tray icon, scheduler, wallpaper compositing"
 
 # Single binary the user runs: default mode is the tray daemon.
 [[bin]]
-name = "git-wallpaper"
+name = "git-track-wallpaper"
 path = "src/main.rs"
 
 [dependencies]
-git-wallpaper-core = { path = "../core" }
+git-track-wallpaper-core = { path = "../core" }
 chrono.workspace = true
 tray-icon = "0.24.2"
 windows.workspace = true

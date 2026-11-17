@@ -22,7 +22,7 @@ export function NavRail({
     <nav className="rail" aria-label="Settings sections">
       <div className="rail-product">
         <ProductMark />
-        <span className="rail-product-name">GitWallpaper</span>
+        <span className="rail-product-name">GitTrack Wallpaper</span>
       </div>
 
       <div className="rail-nav">
@@ -49,7 +49,7 @@ export function NavRail({
           <span className="dot" />
           Auto-start: {status ? (status.autostart ? "on" : "off") : "unknown"}
         </span>
-        <span className="rail-version">GitWallpaper {status?.version ?? "0.1.0"}</span>
+        <span className="rail-version">v{status?.version ?? "0.1.0"}</span>
       </div>
     </nav>
   );

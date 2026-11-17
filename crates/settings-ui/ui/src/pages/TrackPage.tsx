@@ -165,7 +165,7 @@ export function TrackPage({
         <SettingRow
           icon="windows"
           title="Start with Windows"
-          subtitle="Launch GitWallpaper when you sign in."
+          subtitle="Launch GitTrack Wallpaper when you sign in."
         >
           <Switch
             ariaLabel="Start with Windows"

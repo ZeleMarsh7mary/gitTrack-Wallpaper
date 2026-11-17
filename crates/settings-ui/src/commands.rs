@@ -1,4 +1,4 @@
-//! Tauri commands. Every piece of business logic delegates to `git-wallpaper-core`
+//! Tauri commands. Every piece of business logic delegates to `git-track-wallpaper-core`
 //! so the settings window can never drift from what the daemon renders.
 
 use std::path::PathBuf;
@@ -7,11 +7,11 @@ use std::sync::Mutex;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use tauri::State;
 
-use git_wallpaper_core::config::{self as core_config, Config};
-use git_wallpaper_core::git_fetcher::{self, DayStat};
-use git_wallpaper_core::renderer::{self, Scene};
-use git_wallpaper_core::security;
-use git_wallpaper_core::win_api;
+use git_track_wallpaper_core::config::{self as core_config, Config};
+use git_track_wallpaper_core::git_fetcher::{self, DayStat};
+use git_track_wallpaper_core::renderer::{self, Scene};
+use git_track_wallpaper_core::security;
+use git_track_wallpaper_core::win_api;
 
 use crate::ui_config::{AppStatus, ApplyResult, Bootstrap, ConnectionStats, UiConfig};
 
@@ -50,7 +50,7 @@ impl AppState {
 
 fn daemon_exe() -> Option<PathBuf> {
     let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    let candidate = dir.join("git-wallpaper.exe");
+    let candidate = dir.join("git-track-wallpaper.exe");
     candidate.exists().then_some(candidate)
 }
 
@@ -161,7 +161,7 @@ pub fn save_and_apply(config: UiConfig) -> Result<ApplyResult, String> {
     } else if started {
         "Saved. The daemon was not running, so it was started.".to_string()
     } else {
-        "Saved. The daemon is not running; start git-wallpaper.exe.".to_string()
+        "Saved. The daemon is not running; start git-track-wallpaper.exe.".to_string()
     };
     if target_missing {
         message.push_str(" Add a GitHub username or repository URL to track something.");

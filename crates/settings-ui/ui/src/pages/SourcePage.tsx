@@ -85,7 +85,7 @@ export function SourcePage({
       <SettingRow
         icon="clock"
         title="Refresh interval"
-        subtitle="How often GitWallpaper re-renders the wallpaper."
+        subtitle="How often GitTrack Wallpaper re-renders the wallpaper."
       >
         <Slider
           ariaLabel="Refresh interval in minutes"

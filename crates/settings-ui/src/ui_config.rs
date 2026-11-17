@@ -5,8 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use git_wallpaper_core::config as core;
-use git_wallpaper_core::security;
+use git_track_wallpaper_core::config as core;
+use git_track_wallpaper_core::security;
 
 // ------------------------------------------------------------------ enums
 

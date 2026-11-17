@@ -22,7 +22,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", manifest.display());
 
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
-    let rc = out_dir.join("git-wallpaper.rc");
+    let rc = out_dir.join("git-track-wallpaper.rc");
     let icon_path = slash(&icon);
     let manifest_path = slash(&manifest);
     std::fs::write(

@@ -1,6 +1,6 @@
-//! `git-wallpaper-settings.exe` — the on-demand settings window.
+//! `git-track-wallpaper-settings.exe` — the on-demand settings window.
 //!
-//! A Tauri v2 shell around `git-wallpaper-core`: the webview process is spawned
+//! A Tauri v2 shell around `git-track-wallpaper-core`: the webview process is
 //! only when the user opens Settings and is torn down completely when the window
 //! closes, so the background daemon never pays for a WebView.
 
@@ -24,5 +24,5 @@ fn main() {
             commands::show_window,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running the GitWallpaper settings window");
+        .expect("error while running the GitTrack Wallpaper settings window");
 }

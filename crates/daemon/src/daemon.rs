@@ -13,9 +13,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, SetTimer, TranslateMessage, MSG, WM_TIMER,
 };
 
-use git_wallpaper_core::config::{self, Config};
-use git_wallpaper_core::renderer::{render_png, Scene};
-use git_wallpaper_core::{git_fetcher, win_api};
+use git_track_wallpaper_core::config::{self, Config};
+use git_track_wallpaper_core::renderer::{render_png, Scene};
+use git_track_wallpaper_core::{git_fetcher, win_api};
 
 /// Windows is still busy logging in; do not race it for network or disk.
 const BOOT_DELAY_MS: u32 = 12_000;
@@ -46,7 +46,7 @@ pub fn run() -> Result<(), String> {
     let worker = {
         let running = Arc::clone(&running);
         std::thread::Builder::new()
-            .name("git-wallpaper-worker".into())
+            .name("git-track-wallpaper-worker".into())
             .spawn(move || worker_loop(running))
             .map_err(|e| format!("spawn worker: {e}"))?
     };
@@ -68,7 +68,7 @@ pub fn run() -> Result<(), String> {
     };
     let _tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_tooltip("GitWallpaper - GitHub contributions on your desktop")
+        .with_tooltip("GitTrack Wallpaper - GitHub contributions on your desktop")
         .with_icon(icon)
         .build()
         .map_err(|e| format!("create tray icon: {e}"))?;
@@ -111,13 +111,13 @@ pub fn run() -> Result<(), String> {
     Ok(())
 }
 
-/// Launch `git-wallpaper-settings.exe`, which ships next to this binary.
+/// Launch `git-track-wallpaper-settings.exe`, which ships next to this binary.
 ///
 /// Returns false when the file is missing so `--settings` can report a real
 /// error instead of silently doing nothing.
 pub fn open_settings() -> bool {
     let Some(exe) = settings_exe() else {
-        log_line("git-wallpaper-settings.exe not found next to the daemon");
+        log_line("git-track-wallpaper-settings.exe not found next to the daemon");
         return false;
     };
     match std::process::Command::new(&exe).spawn() {
@@ -131,7 +131,7 @@ pub fn open_settings() -> bool {
 
 fn settings_exe() -> Option<std::path::PathBuf> {
     let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    let candidate = dir.join("git-wallpaper-settings.exe");
+    let candidate = dir.join("git-track-wallpaper-settings.exe");
     candidate.exists().then_some(candidate)
 }
 
@@ -229,7 +229,7 @@ fn tray_icon_image() -> Option<Icon> {
         [57, 211, 83, 255],
     ];
     let mut buf = vec![0u8; SIZE * SIZE * 4];
-    for px in buf.chunks_exact_mut(4) {
+    for px in buf.as_chunks_mut::<4>().0 {
         px.copy_from_slice(&bg);
     }
     for gy in 0..4usize {

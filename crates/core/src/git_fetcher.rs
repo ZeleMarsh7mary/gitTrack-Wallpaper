@@ -31,7 +31,7 @@ struct CacheFile {
 
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
-        .user_agent("GitWallpaper/0.1 (+Windows tray wallpaper)")
+        .user_agent("GitTrackWallpaper/0.1 (+Windows tray wallpaper)")
         .timeout_connect(Duration::from_secs(10))
         .timeout_read(Duration::from_secs(20))
         .timeout_write(Duration::from_secs(20))

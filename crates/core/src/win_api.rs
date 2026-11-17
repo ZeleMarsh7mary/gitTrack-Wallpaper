@@ -20,10 +20,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SPIF_UPDATEINIFILE, SPI_SETDESKWALLPAPER,
 };
 
-pub const MUTEX_NAME: &str = "Local\\GitWallpaperDaemonMutex";
-pub const REFRESH_EVENT: &str = "Local\\GitWallpaperRefreshEvent";
+pub const MUTEX_NAME: &str = "Local\\GitTrackWallpaperDaemonMutex";
+pub const REFRESH_EVENT: &str = "Local\\GitTrackWallpaperRefreshEvent";
 pub const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-pub const RUN_VALUE: &str = "GitWallpaper";
+pub const RUN_VALUE: &str = "GitTrackWallpaper";
 
 pub fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()

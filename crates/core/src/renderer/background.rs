@@ -18,7 +18,7 @@ fn solid(bg: &Background, w: u32, h: u32) -> Pixmap {
     let mut pm = Pixmap::new(w.max(1), h.max(1)).unwrap_or_else(empty);
     let (r, g, b) = rgb(&bg.color_primary, 0x101010);
     let mut data = vec![0u8; (w as usize) * (h as usize) * 4];
-    for px in data.chunks_exact_mut(4) {
+    for px in data.as_chunks_mut::<4>().0 {
         px.copy_from_slice(&[r, g, b, 255]);
     }
     pm.data_mut().copy_from_slice(&data);
@@ -80,7 +80,7 @@ fn render_image(bg: &Background, w: u32, h: u32) -> Option<Pixmap> {
     let mut pm = Pixmap::new(w, h)?;
     let src = canvas.as_raw();
     let dst = pm.data_mut();
-    for (i, px) in src.chunks_exact(4).enumerate() {
+    for (i, px) in src.as_chunks::<4>().0.iter().enumerate() {
         let a = px[3] as u32;
         let o = i * 4;
         if a == 255 {

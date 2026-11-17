@@ -1,9 +1,10 @@
 [package]
-name = "git-wallpaper-core"
+name = "git-track-wallpaper-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description.workspace = true
+license.workspace = true
+description = "Shared logic for GitTrack Wallpaper: config, DPAPI secrets, GitHub fetcher, CPU wallpaper compositor"
 
 [dependencies]
 ab_glyph.workspace = true

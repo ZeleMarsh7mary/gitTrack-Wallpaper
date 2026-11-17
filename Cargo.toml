@@ -5,8 +5,9 @@ members = ["crates/core", "crates/daemon", "crates/settings-ui"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.77"
-description = "Lightweight Windows tray app that renders GitHub contribution activity onto the desktop wallpaper"
+# Highest MSRV among the dependency tree (image 0.25 needs 1.88).
+rust-version = "1.88"
+license = "MIT"
 
 [workspace.dependencies]
 ab_glyph = "0.2.32"

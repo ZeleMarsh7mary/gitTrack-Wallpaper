@@ -32,8 +32,8 @@ const DEMO_STATUS: AppStatus = {
   autostart: false,
   version: "0.1.0",
   resolution: [1920, 1080],
-  configPath: "C:\\Users\\you\\AppData\\Roaming\\GitWallpaper\\config.toml",
-  cachePath: "C:\\Users\\you\\AppData\\Local\\GitWallpaper\\cache.json",
+  configPath: "C:\\Users\\you\\AppData\\Roaming\\GitTrackWallpaper\\config.toml",
+  cachePath: "C:\\Users\\you\\AppData\\Local\\GitTrackWallpaper\\cache.json",
   mica: false,
 };
 

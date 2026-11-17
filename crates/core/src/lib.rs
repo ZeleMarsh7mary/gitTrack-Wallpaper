@@ -1,7 +1,7 @@
-//! Shared, UI-free logic for GitWallpaper.
+//! Shared, UI-free logic for GitTrack Wallpaper.
 //!
-//! Everything that both the background daemon (`git-wallpaper.exe`) and the
-//! on-demand settings window (`git-wallpaper-settings.exe`) need lives here:
+//! Everything that both the background daemon (`git-track-wallpaper.exe`) and the
+//! on-demand settings window (`git-track-wallpaper-settings.exe`) need lives here:
 //! configuration, DPAPI secret storage, the GitHub fetcher, the CPU compositor
 //! and the thin Win32 wrappers.
 //!
