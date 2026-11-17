@@ -1,26 +1,37 @@
-[package]
-name = "git-wallpaper"
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/daemon", "crates/settings-ui"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.77"
 description = "Lightweight Windows tray app that renders GitHub contribution activity onto the desktop wallpaper"
-build = "build.rs"
 
-[dependencies]
+[workspace.dependencies]
 ab_glyph = "0.2.32"
 base64 = "0.23.1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
-eframe = "0.29.1"
-egui-phosphor = "0.7.3"
 image = { version = "0.25.6", default-features = false, features = ["png", "jpeg", "bmp", "webp"] }
-rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tiny-skia = "0.12.0"
 toml = "1.0.7"
-tray-icon = "0.24.2"
 ureq = { version = "2", features = ["json", "tls"] }
-windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_LibraryLoader", "Win32_Security_Cryptography", "Win32_Security", "Win32_Graphics_Gdi", "Win32_System_Time", "Win32_Storage_FileSystem", "Win32_Graphics_Dwm"] }
+windows = { version = "0.61.3", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_System_LibraryLoader",
+    "Win32_Security_Cryptography",
+    "Win32_Security",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Time",
+    "Win32_Storage_FileSystem",
+    "Win32_Graphics_Dwm",
+] }
 windows-registry = "0.5.3"
 
 [profile.release]
@@ -29,6 +40,3 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
-
-[build-dependencies]
-embed-resource = "3.0.12"

@@ -13,9 +13,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, SetTimer, TranslateMessage, MSG, WM_TIMER,
 };
 
-use crate::config::{self, Config};
-use crate::renderer::{render_png, Scene};
-use crate::win_api;
+use git_wallpaper_core::config::{self, Config};
+use git_wallpaper_core::renderer::{render_png, Scene};
+use git_wallpaper_core::{git_fetcher, win_api};
 
 /// Windows is still busy logging in; do not race it for network or disk.
 const BOOT_DELAY_MS: u32 = 12_000;
@@ -111,14 +111,28 @@ pub fn run() -> Result<(), String> {
     Ok(())
 }
 
-fn open_settings() {
-    let Ok(exe) = std::env::current_exe() else {
-        log_line("current_exe failed; cannot open Settings");
-        return;
+/// Launch `git-wallpaper-settings.exe`, which ships next to this binary.
+///
+/// Returns false when the file is missing so `--settings` can report a real
+/// error instead of silently doing nothing.
+pub fn open_settings() -> bool {
+    let Some(exe) = settings_exe() else {
+        log_line("git-wallpaper-settings.exe not found next to the daemon");
+        return false;
     };
-    if let Err(e) = std::process::Command::new(exe).arg("--settings").spawn() {
-        log_line(&format!("spawn --settings: {e}"));
+    match std::process::Command::new(&exe).spawn() {
+        Ok(_) => true,
+        Err(e) => {
+            log_line(&format!("spawn {}: {e}", exe.display()));
+            false
+        }
     }
+}
+
+fn settings_exe() -> Option<std::path::PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let candidate = dir.join("git-wallpaper-settings.exe");
+    candidate.exists().then_some(candidate)
 }
 
 fn worker_loop(running: Arc<AtomicBool>) {
@@ -162,7 +176,7 @@ fn worker_loop(running: Arc<AtomicBool>) {
 
 /// One full cycle: fetch (or cache), composite, write, set wallpaper.
 pub fn refresh_once(cfg: &Config) {
-    let (days, err) = crate::git_fetcher::resolve(cfg);
+    let (days, err) = git_fetcher::resolve(cfg);
     if let Some(e) = err {
         log_line(&format!("fetch failed, using cache: {e}"));
     }

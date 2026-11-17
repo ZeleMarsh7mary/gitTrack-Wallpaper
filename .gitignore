@@ -1,2 +1,5 @@
 /target
 /dist
+/crates/settings-ui/ui/dist
+/crates/settings-ui/ui/node_modules
+/crates/settings-ui/gen/schemas

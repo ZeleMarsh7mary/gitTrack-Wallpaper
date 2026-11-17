@@ -1,30 +1,38 @@
-//! `git-wallpaper.exe`
+//! `git-wallpaper.exe` — the background daemon.
 //!
-//! * no arguments        -> background daemon (tray icon, scheduler)
-//! * `--settings`        -> on-demand settings window, exits when closed
+//! * no arguments        -> tray icon, scheduler, wallpaper compositing
+//! * `--settings`        -> forwards to `git-wallpaper-settings.exe` next to this exe
 //! * `--apply-once`      -> one fetch + render + set-wallpaper cycle, then exit
 //! * `--render-once [p]` -> render one wallpaper PNG to `p` (debug/verification)
 //! * `--version`         -> print version
+//!
+//! No GUI toolkit is linked into this binary: the settings window is a separate
+//! WebView2 process that only exists while the user has it open.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod config;
 mod daemon;
-mod git_fetcher;
-mod renderer;
-mod security;
-mod ui_settings;
-mod win_api;
 
-use config::Config;
-use renderer::Scene;
+use git_wallpaper_core::config::Config;
+use git_wallpaper_core::renderer::Scene;
+use git_wallpaper_core::win_api;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let first = args.first().map(String::as_str).unwrap_or("");
 
     let result = match first {
-        "--settings" => ui_settings::run(),
+        // Forwarded for shortcuts and scripts written before the settings
+        // window became its own executable.
+        "--settings" => {
+            if daemon::open_settings() {
+                Ok(())
+            } else {
+                let msg = "git-wallpaper-settings.exe is not next to git-wallpaper.exe";
+                daemon::log_line(msg);
+                Err(msg.to_string())
+            }
+        }
         "--apply-once" => daemon::apply_once(),
         "--render-once" => render_once(args.get(1).map(String::as_str)),
         "--version" | "-V" => {
@@ -50,11 +58,12 @@ fn render_once(out: Option<&str>) -> Result<(), String> {
     }
     // Prefer fresh data, then the cache, then the deterministic demo year so the
     // compositor can be verified before GitHub is configured.
-    let days = match git_fetcher::fetch(&cfg) {
+    let days = match git_wallpaper_core::git_fetcher::fetch(&cfg) {
         Ok(days) => days,
         Err(err) => {
             daemon::log_line(&format!("render-once fetch: {err}"));
-            git_fetcher::load_cache().unwrap_or_else(git_fetcher::demo_days)
+            git_wallpaper_core::git_fetcher::load_cache()
+                .unwrap_or_else(git_wallpaper_core::git_fetcher::demo_days)
         }
     };
 
@@ -66,20 +75,20 @@ fn render_once(out: Option<&str>) -> Result<(), String> {
         scale: 1.0,
     };
     let started = std::time::Instant::now();
-    let png = renderer::render_png(&scene)?;
+    let png = git_wallpaper_core::renderer::render_png(&scene)?;
     let elapsed = started.elapsed();
 
     match out {
         Some(path) if !path.is_empty() => {
-            config::write_atomic(std::path::Path::new(path), &png)?;
+            git_wallpaper_core::config::write_atomic(std::path::Path::new(path), &png)?;
             println!(
                 "render {w}x{h} -> {path} ({} byte, {elapsed:.1?})",
                 png.len()
             );
         }
         _ => {
-            let path = config::wallpaper_path();
-            config::write_atomic(&path, &png)?;
+            let path = git_wallpaper_core::config::wallpaper_path();
+            git_wallpaper_core::config::write_atomic(&path, &png)?;
             win_api::set_wallpaper(&path)?;
             println!("wallpaper set from {}", path.display());
         }
