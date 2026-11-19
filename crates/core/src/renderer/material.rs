@@ -108,7 +108,7 @@ pub fn apply_card(
     }
 }
 
-fn draw_border(pm: &mut Pixmap, rect: (f32, f32, f32, f32), radius: f32) {
+pub(crate) fn draw_border(pm: &mut Pixmap, rect: (f32, f32, f32, f32), radius: f32) {
     let Some(path) = rounded_rect_path(rect.0, rect.1, rect.2, rect.3, radius) else {
         return;
     };

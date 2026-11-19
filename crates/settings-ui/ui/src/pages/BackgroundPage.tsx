@@ -107,6 +107,12 @@ export function BackgroundPage({
                 background: {
                   ...current.background,
                   fit: fit as UiConfig["background"]["fit"],
+                  // Cover cannot go below 1.0, so do not keep a value the renderer
+                  // would only clamp silently.
+                  zoom:
+                    fit === "cover"
+                      ? Math.max(current.background.zoom, 1)
+                      : current.background.zoom,
                 },
               }))
             }
@@ -123,7 +129,7 @@ export function BackgroundPage({
           <Slider
             ariaLabel="Wallpaper zoom"
             value={background.zoom}
-            min={0.5}
+            min={background.fit === "cover" ? 1 : 0.5}
             max={4}
             step={0.05}
             format={(value) => `${value.toFixed(2)}x`}

@@ -91,3 +91,15 @@ export interface ToastData {
   kind: ToastKind;
   text: string;
 }
+
+/** Transparent card layer the live preview composites over a moved background. */
+export interface CardOverlay {
+  /** PNG data URL: card + heatmap, transparent elsewhere. */
+  png: string;
+  /** Card rect in canvas pixels: x, y, w, h. */
+  card: [number, number, number, number];
+  radius: number;
+  /** Backdrop blur in canvas pixels, material factor already applied. */
+  blur: number;
+  canvas: [number, number];
+}

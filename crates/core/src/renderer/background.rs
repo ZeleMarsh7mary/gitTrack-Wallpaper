@@ -76,20 +76,27 @@ fn render_image(bg: &Background, w: u32, h: u32) -> Option<Pixmap> {
         }
     };
 
-    // 2. Zoom multiplies the drawn size on both axes.
+    // 2. Zoom multiplies the drawn size on both axes. Cover must never shrink the
+    //    picture inside the frame, or the wallpaper would show an empty edge.
     let zoom = if bg.zoom.is_finite() {
         bg.zoom.clamp(ZOOM_MIN, ZOOM_MAX)
     } else {
         1.0
     };
+    let zoom = if matches!(bg.fit, BgFit::Cover) {
+        zoom.max(1.0)
+    } else {
+        zoom
+    };
     let draw_w = iw as f32 * base_x * zoom;
     let draw_h = ih as f32 * base_y * zoom;
 
-    // 3. Pan slides the centre across the slack the picture leaves in the canvas.
-    let pan_x = bg.pan_x.clamp(-1.0, 1.0);
-    let pan_y = bg.pan_y.clamp(-1.0, 1.0);
-    let centre_x = w as f32 * 0.5 + pan_x * (draw_w.max(w as f32) * 0.5);
-    let centre_y = h as f32 * 0.5 + pan_y * (draw_h.max(h as f32) * 0.5);
+    // 3. Pan slides across the slack the picture leaves; clamping the slack at zero
+    //    means a fitted picture simply cannot expose a gap.
+    let slack_x = ((draw_w - w as f32) * 0.5).max(0.0);
+    let slack_y = ((draw_h - h as f32) * 0.5).max(0.0);
+    let centre_x = w as f32 * 0.5 + bg.pan_x.clamp(-1.0, 1.0) * slack_x;
+    let centre_y = h as f32 * 0.5 + bg.pan_y.clamp(-1.0, 1.0) * slack_y;
     let origin_x = centre_x - draw_w * 0.5;
     let origin_y = centre_y - draw_h * 0.5;
 
@@ -224,6 +231,26 @@ mod tests {
             "zoom covers the left bar"
         );
         assert_eq!(rgb_at(&zoomed, 197, 50), (0, 0, 255), "and the right bar");
+    }
+
+    #[test]
+    fn cover_never_shrinks_below_the_canvas() {
+        let path = fixture("gittrack-framing-cover.png", 400, |_, _| [0, 0, 255, 255]);
+        let mut bg = background(&path, BgFit::Cover);
+        // Below 1.0 the renderer clamps, and panning to the edge must still not
+        // expose the fallback colour: cover means covered.
+        bg.zoom = 0.5;
+        for pan_y in [-1.0, 0.0, 1.0] {
+            bg.pan_y = pan_y;
+            let frame = render(&bg, 200, 100);
+            for (x, y) in [(1, 1), (198, 1), (1, 98), (198, 98)] {
+                assert_eq!(
+                    rgb_at(&frame, x, y),
+                    (0, 0, 255),
+                    "pan_y {pan_y} exposed the backdrop at {x},{y}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -5,9 +5,10 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use serde::Serialize;
 use tauri::State;
 
-use git_track_wallpaper_core::config::{self as core_config, Config};
+use git_track_wallpaper_core::config::{self as core_config, Config, MaterialKind};
 use git_track_wallpaper_core::git_fetcher::{self, DayStat};
 use git_track_wallpaper_core::renderer::{self, Scene};
 use git_track_wallpaper_core::security;
@@ -19,9 +20,11 @@ use crate::ui_config::{AppStatus, ApplyResult, Bootstrap, ConnectionStats, UiCon
 /// it stays sharp on a 200% display.
 const PREVIEW_W: f32 = 960.0;
 
-/// Year of contribution data shared by every preview render in this window.
+/// Year of contribution data shared by every preview render in this window, plus
+/// the background picture the live preview transforms without asking Rust again.
 pub struct AppState {
     days: Mutex<Vec<DayStat>>,
+    background: Mutex<Option<(String, String)>>,
 }
 
 impl AppState {
@@ -31,6 +34,7 @@ impl AppState {
         let days = git_fetcher::load_cache().unwrap_or_else(git_fetcher::demo_days);
         Self {
             days: Mutex::new(days),
+            background: Mutex::new(None),
         }
     }
 
@@ -44,6 +48,21 @@ impl AppState {
     fn replace(&self, days: Vec<DayStat>) {
         if let Ok(mut guard) = self.days.lock() {
             *guard = days;
+        }
+    }
+
+    /// Cached data URL for `path`, if the same picture was already decoded.
+    fn cached_background(&self, path: &str) -> Option<String> {
+        let guard = self.background.lock().ok()?;
+        match guard.as_ref() {
+            Some((cached, url)) if cached == path => Some(url.clone()),
+            _ => None,
+        }
+    }
+
+    fn cache_background(&self, path: &str, url: &str) {
+        if let Ok(mut guard) = self.background.lock() {
+            *guard = Some((path.to_string(), url.to_string()));
         }
     }
 }
@@ -198,4 +217,105 @@ pub fn show_window(window: tauri::Window) -> Result<bool, String> {
     window.show().map_err(|e| e.to_string())?;
     let _ = window.set_focus();
     Ok(mica)
+}
+
+/// Card geometry and pixels for the live preview composite.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardOverlay {
+    /// PNG data URL: card + heatmap, transparent everywhere else.
+    pub png: String,
+    /// Card rect in canvas pixels: x, y, w, h.
+    pub card: [f32; 4],
+    pub radius: f32,
+    /// Backdrop blur the card asks for, in canvas pixels (material factor applied).
+    pub blur: f32,
+    pub canvas: [u32; 2],
+}
+
+/// The card on a transparent canvas, so the webview can composite it over a
+/// CSS-transformed background instead of waiting for a full render per frame.
+#[tauri::command]
+pub async fn render_card_overlay(
+    config: UiConfig,
+    state: State<'_, AppState>,
+) -> Result<CardOverlay, String> {
+    let cfg = config.to_core();
+    let days = state.snapshot();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (sw, sh) = win_api::primary_monitor_size();
+        let scale = PREVIEW_W / sw.max(1) as f32;
+        let height = (sh.max(1) as f32 * scale).round().max(90.0) as u32;
+        let size = (PREVIEW_W as u32, height);
+        let scene = Scene {
+            config: &cfg,
+            days: &days,
+            size_px: size,
+            scale,
+        };
+        let png = renderer::render_card_overlay(&scene)?
+            .encode_png()
+            .map_err(|e| format!("encode card overlay: {e}"))?;
+        let l = renderer::layout(&scene);
+        // Same material weighting `material::apply_card` uses, so the CSS blur
+        // matches the baked blur of the authoritative render.
+        let kind_factor = match cfg.card.material {
+            MaterialKind::None | MaterialKind::Solid => 0.0,
+            MaterialKind::Mica => 0.45,
+            MaterialKind::Acrylic => 1.15,
+            MaterialKind::Glass => 1.0,
+        };
+        Ok(CardOverlay {
+            png: format!("data:image/png;base64,{}", STANDARD.encode(png)),
+            card: [l.card_x, l.card_y, l.card_w, l.card_h],
+            radius: l.radius,
+            blur: cfg.card.blur_radius * scale * kind_factor,
+            canvas: [size.0, size.1],
+        })
+    })
+    .await
+    .map_err(|e| format!("card overlay task failed: {e}"))?
+}
+
+/// The configured background picture as a data URL, downscaled for the preview.
+///
+/// Cached per path in `AppState`: dragging never re-decodes the file.
+#[tauri::command]
+pub async fn background_image(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    if path.trim().is_empty() {
+        return Ok(None);
+    }
+    if let Some(url) = state.cached_background(&path) {
+        return Ok(Some(url));
+    }
+    let requested = path.clone();
+    let url = tauri::async_runtime::spawn_blocking(move || -> Result<Option<String>, String> {
+        let img = image::open(requested.trim())
+            .map_err(|e| format!("Could not open the background image: {e}"))?;
+        let (w, h) = (img.width().max(1), img.height().max(1));
+        // 1600 px is plenty for a 480 px preview and keeps the decode cheap.
+        const MAX_W: u32 = 1600;
+        let img = if w > MAX_W {
+            let nh = ((h as u64 * MAX_W as u64) / w as u64).max(1) as u32;
+            img.resize_exact(MAX_W, nh, image::imageops::FilterType::Triangle)
+        } else {
+            img
+        };
+        let mut buf = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut buf, image::ImageFormat::Png)
+            .map_err(|e| format!("Could not encode the background image: {e}"))?;
+        Ok(Some(format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(buf.into_inner())
+        )))
+    })
+    .await
+    .map_err(|e| format!("background image task failed: {e}"))??;
+    if let Some(url) = &url {
+        state.cache_background(&path, url);
+    }
+    Ok(url)
 }

@@ -5,9 +5,9 @@ pub mod background;
 pub mod heatmap;
 pub mod material;
 
-use tiny_skia::Pixmap;
+use tiny_skia::{Color, FillRule, Paint, Pixmap, Transform};
 
-use crate::config::{Config, Position};
+use crate::config::{Config, MaterialKind, Position};
 use crate::git_fetcher::DayStat;
 
 pub const COLS: usize = 53;
@@ -133,6 +133,48 @@ pub fn render(scene: &Scene<'_>) -> Result<Pixmap, String> {
     Ok(pm)
 }
 
+/// The card, its heatmap and the glass border on a transparent canvas.
+///
+/// The settings window composites this over a CSS-transformed copy of the
+/// background image so that dragging never waits for a render. The backdrop blur
+/// is left to CSS `backdrop-filter`, so the tint keeps its own alpha here and the
+/// picture stays visible through the card.
+pub fn render_card_overlay(scene: &Scene<'_>) -> Result<Pixmap, String> {
+    let (w, h) = scene.size_px;
+    let mut pm = Pixmap::new(w.max(1), h.max(1))
+        .ok_or_else(|| "card overlay: pixmap allocation failed".to_string())?;
+    let l = layout(scene);
+    let card = &scene.config.card;
+    if !matches!(card.material, MaterialKind::None) {
+        let (r, g, b) = crate::config::rgb(&card.tint_color, 0x10161f);
+        let opacity = card.opacity.clamp(0.0, 1.0);
+        let alpha = if matches!(card.material, MaterialKind::Solid) {
+            opacity.max(0.85)
+        } else {
+            opacity
+        };
+        let mut paint = Paint::default();
+        paint.set_color(Color::from_rgba8(r, g, b, (alpha * 255.0).round() as u8));
+        paint.anti_alias = true;
+        if let Some(path) =
+            material::rounded_rect_path(l.card_x, l.card_y, l.card_w, l.card_h, l.radius)
+        {
+            pm.fill_path(
+                &path,
+                &paint,
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+        if matches!(card.material, MaterialKind::Glass) {
+            material::draw_border(&mut pm, (l.card_x, l.card_y, l.card_w, l.card_h), l.radius);
+        }
+    }
+    heatmap::draw(&mut pm, scene, &l);
+    Ok(pm)
+}
+
 /// Convenience for the daemon: render the scene, then hand back PNG bytes.
 pub fn render_png(scene: &Scene<'_>) -> Result<Vec<u8>, String> {
     let pm = render(scene)?;
@@ -207,6 +249,30 @@ mod tests {
             }
         }
         assert!(hits > 20, "expected level-4 boxes in the grid, got {hits}");
+    }
+
+    #[test]
+    fn card_overlay_is_transparent_outside_the_card() {
+        let (cfg, days) = fixture();
+        let scene = Scene {
+            config: &cfg,
+            days: &days,
+            size_px: (640, 360),
+            scale: 640.0 / 1920.0,
+        };
+        let overlay = render_card_overlay(&scene).expect("overlay");
+        let l = layout(&scene);
+        assert_eq!(
+            overlay.pixel(2, 2).map(|p| p.alpha()),
+            Some(0),
+            "the backdrop must stay transparent so the live image shows through"
+        );
+        let cx = (l.card_x + l.card_w * 0.5) as u32;
+        let cy = (l.card_y + l.card_h * 0.5) as u32;
+        assert!(
+            overlay.pixel(cx, cy).map(|p| p.alpha()).unwrap_or(0) > 0,
+            "the card itself must be drawn"
+        );
     }
 
     #[test]

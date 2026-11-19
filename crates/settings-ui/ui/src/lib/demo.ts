@@ -181,6 +181,46 @@ function cardLayer(cfg: UiConfig): string {
   return `${cardFill}${header}${cells.join("")}`;
 }
 
+/** Stand-in for the user's picture, so dragging works outside Tauri too. */
+export function demoBackground(): string {
+  const vlines = Array.from(
+    { length: 9 },
+    (_, i) => `<line x1="${(i + 1) * 160}" y1="0" x2="${(i + 1) * 160}" y2="900"/>`,
+  ).join("");
+  const hlines = Array.from(
+    { length: 5 },
+    (_, i) => `<line x1="0" y1="${(i + 1) * 150}" x2="1600" y2="${(i + 1) * 150}"/>`,
+  ).join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+    <rect width="800" height="450" fill="#2e7d9a"/>
+    <rect x="800" width="800" height="450" fill="#204a63"/>
+    <rect y="450" width="800" height="450" fill="#1b3a4b"/>
+    <rect x="800" y="450" width="800" height="450" fill="#3f6f57"/>
+    <g stroke="rgba(255,255,255,0.22)" stroke-width="2">${vlines}${hlines}</g>
+    <text x="48" y="96" font-family="Segoe UI, sans-serif" font-size="52" fill="#ffffff" fill-opacity="0.75">DEMO BACKGROUND 1600 x 900</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/** Stand-in card layer: a translucent rounded card with a few heatmap boxes. */
+export function demoCardOverlay(): string {
+  const boxes: string[] = [];
+  for (let row = 0; row < 5; row += 1) {
+    for (let col = 0; col < 24; col += 1) {
+      const level = levelAt(col, row);
+      const fill = ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"][level];
+      boxes.push(
+        `<rect x="${320 + col * 14}" y="${220 + row * 14}" width="10" height="10" rx="2" fill="${fill}" fill-opacity="0.95"/>`,
+      );
+    }
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+    <rect x="300" y="168" width="360" height="204" rx="10" fill="#10161f" fill-opacity="0.55" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+    ${boxes.join("")}
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 export function demoPreview(cfg: UiConfig): string {
   const primary = safeHex(cfg.background.colorPrimary, "#0b1220");
   const secondary = safeHex(cfg.background.colorSecondary, "#12261c");

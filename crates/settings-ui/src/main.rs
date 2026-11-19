@@ -18,6 +18,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap,
             commands::render_preview,
+            commands::render_card_overlay,
+            commands::background_image,
             commands::test_connection,
             commands::save_and_apply,
             commands::pick_image_file,

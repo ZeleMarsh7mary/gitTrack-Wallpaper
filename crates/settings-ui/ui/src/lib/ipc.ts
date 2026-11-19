@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { DEFAULT_CONFIG } from "./defaults";
-import { demoPreview } from "./demo";
+import { demoBackground, demoCardOverlay, demoPreview } from "./demo";
 import type {
   AppStatus,
   ApplyResult,
   Bootstrap,
+  CardOverlay,
   ConnectionStats,
   UiConfig,
 } from "./types";
@@ -75,6 +76,16 @@ async function demoCall<T>(
       return "C:\\Users\\Public\\Pictures\\wallpaper.png" as T;
     case "show_window":
       return false as T;
+    case "background_image":
+      return (args?.path ? demoBackground() : null) as T;
+    case "render_card_overlay":
+      return {
+        png: demoCardOverlay(),
+        card: [300, 168, 360, 204],
+        radius: 10,
+        blur: 12,
+        canvas: [960, 540],
+      } as T;
     default:
       throw `Unknown command: ${command}`;
   }
@@ -102,6 +113,14 @@ export const saveAndApply = (config: UiConfig) =>
 export const pickImageFile = () => call<string | null>("pick_image_file");
 
 export const showWindow = () => call<boolean>("show_window");
+
+/** Raw background picture for the live composite; decoded and cached by Rust. */
+export const backgroundImage = (path: string) =>
+  call<string | null>("background_image", { path });
+
+/** Card + heatmap on a transparent canvas, for the live composite. */
+export const renderCardOverlay = (config: UiConfig) =>
+  call<CardOverlay>("render_card_overlay", { config });
 
 // Without Mica the window must paint the flat WinUI dark background. Doing it
 // before the first frame avoids a white flash in the browser demo.

@@ -235,7 +235,8 @@ input,
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 24px 28px 24px;
+  /* Extra bottom padding keeps the last row clear of the sticky footer. */
+  padding: 24px 28px 40px;
   scrollbar-gutter: stable;
 }
 
@@ -404,6 +405,42 @@ input,
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+
+/* Live composite used while a gesture runs: the picture is moved by transform,
+   the card and the guides stay put, and nothing waits for a render. */
+.preview-live {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.preview-live-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  will-change: transform;
+  transform-origin: 0 0;
+}
+
+.preview-live-blur {
+  position: absolute;
+  pointer-events: none;
+}
+
+.preview-live-card {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* The authoritative render stays mounted behind the live layers, so swapping
+   back after the gesture does not flash. */
+.preview-shot.is-hidden {
+  visibility: hidden;
 }
 
 /* Hairline plus a dark halo, so the guide stays visible on a white wallpaper. */
