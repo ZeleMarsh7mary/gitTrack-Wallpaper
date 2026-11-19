@@ -24,6 +24,12 @@ First public release. The project was previously developed privately as
   horizontal and vertical pan with drag-to-pan and scroll-to-zoom inside the
   preview, rule-of-thirds and golden-ratio composition guides (preview overlay
   only), and `Reset framing`.
+- The framing preview is composited in the webview while a gesture runs: the
+  decoded picture moves under a transparent card layer by CSS transform, and the
+  authoritative render runs once when the gesture ends.
+- `Cover` refuses to zoom below 1.00x and pan is clamped to the slack the
+  picture leaves, so framing can never expose the backdrop; the settings scroll
+  area keeps 40 px clear of the sticky footer.
 - Cargo workspace: `crates/core` (shared logic), `crates/daemon`,
   `crates/settings-ui`.
 - MIT license, contribution guide and GitHub Actions CI.

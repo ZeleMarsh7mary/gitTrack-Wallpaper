@@ -97,12 +97,22 @@ WinUI-style switches, and a bottom-right toast that auto-dismisses after 4 s.
 
 Image framing (`background.zoom`, `background.pan_x`, `background.pan_y`): on the
 Background page in Image mode, drag inside the preview to pan and scroll over it
-to zoom between 0.50x and 4.00x, or use the Zoom / Position X / Position Y rows.
-Anything the picture does not cover — `Contain`, a zoom below 1.0, an offset
-pushed past the edge — keeps the primary colour. Two composition guides (rule of
-thirds at 33.3/66.7, golden ratio at 38.2/61.8) can be toggled next to the
-caption; they are a DOM overlay only, never part of `config.toml` and never drawn
-by the renderer. `Reset framing` returns zoom to 1.00x and both offsets to 0%.
+to zoom, or use the Zoom / Position X / Position Y rows. `Cover` cannot zoom
+below 1.00x and pan is clamped to the slack the picture leaves, so framing can
+never expose the backdrop; `Contain` keeps its bars in the primary colour. Two
+composition guides (rule of thirds at 33.3/66.7, golden ratio at 38.2/61.8) can
+be toggled next to the caption; they are a DOM overlay only, never part of
+`config.toml` and never drawn by the renderer. `Reset framing` returns zoom to
+1.00x and both offsets to 0%.
+
+While a drag or a wheel zoom is running the preview does not ask Rust for
+frames: `background_image` hands the webview the decoded picture once (cached per
+path) and `render_card_overlay` hands it the card on a transparent canvas. The
+picture is then moved by a GPU CSS transform under that card, with the backdrop
+blur applied by `backdrop-filter`, so the gesture runs at display refresh rate.
+Exactly one authoritative `render_preview` runs when the pointer is released or
+150 ms after the wheel settles, and that tiny-skia output is what `Save & Apply`
+writes to the desktop.
 
 Backdrop: `DWMWA_SYSTEMBACKDROP_TYPE = Mica` plus
 `DWMWA_USE_IMMERSIVE_DARK_MODE`/`DWMWA_CAPTION_COLOR` via `DwmSetWindowAttribute`
