@@ -20,6 +20,10 @@ First public release. The project was previously developed privately as
 - Typed IPC commands between the webview and Rust: `bootstrap`,
   `render_preview`, `test_connection`, `save_and_apply`, `pick_image_file`,
   `show_window`. Network and render work runs off the UI thread.
+- Interactive image framing on the Background page: zoom (0.50x - 4.00x),
+  horizontal and vertical pan with drag-to-pan and scroll-to-zoom inside the
+  preview, rule-of-thirds and golden-ratio composition guides (preview overlay
+  only), and `Reset framing`.
 - Cargo workspace: `crates/core` (shared logic), `crates/daemon`,
   `crates/settings-ui`.
 - MIT license, contribution guide and GitHub Actions CI.
