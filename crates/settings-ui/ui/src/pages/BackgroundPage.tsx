@@ -5,9 +5,19 @@ import {
   Segmented,
   SettingRow,
   Select,
+  Slider,
   TextField,
 } from "../components/controls";
 import type { UiConfig, UpdateFn } from "../lib/types";
+
+/** Pan is stored normalized; the badge shows it the way the sliders describe it. */
+const formatPercent = (value: number) => `${value > 0 ? "+" : ""}${Math.round(value * 100)}%`;
+
+const PRIMARY_SUBTITLE: Record<UiConfig["background"]["mode"], string> = {
+  image: "Fills whatever the picture leaves uncovered.",
+  solid: "The flat colour that fills the desktop.",
+  gradient: "Top-left end of the gradient.",
+};
 
 export function BackgroundPage({
   config,
@@ -23,6 +33,7 @@ export function BackgroundPage({
   actionsDisabled: boolean;
 }) {
   const { background } = config;
+  const isImage = background.mode === "image";
 
   return (
     <Section title="Wallpaper">
@@ -48,7 +59,7 @@ export function BackgroundPage({
         />
       </SettingRow>
 
-      {background.mode === "image" ? (
+      {isImage ? (
         <SettingRow
           stacked
           icon="folder"
@@ -76,7 +87,7 @@ export function BackgroundPage({
         </SettingRow>
       ) : null}
 
-      {background.mode === "image" ? (
+      {isImage ? (
         <SettingRow
           icon="frame"
           title="Fit"
@@ -103,28 +114,82 @@ export function BackgroundPage({
         </SettingRow>
       ) : null}
 
-      {background.mode !== "image" ? (
+      {isImage ? (
         <SettingRow
-          icon="droplet"
-          title="Primary colour"
-          subtitle={
-            background.mode === "solid"
-              ? "The flat colour that fills the desktop."
-              : "Top-left end of the gradient."
-          }
+          icon="frame"
+          title="Zoom"
+          subtitle="Scales the picture around the screen centre. Scroll over the preview to zoom."
         >
-          <ColorSwatch
-            label="Primary colour"
-            value={background.colorPrimary}
-            onChange={(colorPrimary) =>
-              update((current) => ({
-                ...current,
-                background: { ...current.background, colorPrimary },
-              }))
+          <Slider
+            ariaLabel="Wallpaper zoom"
+            value={background.zoom}
+            min={0.5}
+            max={4}
+            step={0.05}
+            format={(value) => `${value.toFixed(2)}x`}
+            onChange={(zoom) =>
+              update((current) => ({ ...current, background: { ...current.background, zoom } }))
             }
           />
         </SettingRow>
       ) : null}
+
+      {isImage ? (
+        <SettingRow
+          icon="arrowX"
+          title="Position X"
+          subtitle="Move the picture left and right, or drag inside the preview."
+        >
+          <Slider
+            ariaLabel="Wallpaper horizontal position"
+            value={background.panX}
+            min={-1}
+            max={1}
+            step={0.01}
+            format={formatPercent}
+            onChange={(panX) =>
+              update((current) => ({ ...current, background: { ...current.background, panX } }))
+            }
+          />
+        </SettingRow>
+      ) : null}
+
+      {isImage ? (
+        <SettingRow
+          icon="arrowY"
+          title="Position Y"
+          subtitle="Move the picture up and down, or drag inside the preview."
+        >
+          <Slider
+            ariaLabel="Wallpaper vertical position"
+            value={background.panY}
+            min={-1}
+            max={1}
+            step={0.01}
+            format={formatPercent}
+            onChange={(panY) =>
+              update((current) => ({ ...current, background: { ...current.background, panY } }))
+            }
+          />
+        </SettingRow>
+      ) : null}
+
+      <SettingRow
+        icon="droplet"
+        title="Primary colour"
+        subtitle={PRIMARY_SUBTITLE[background.mode]}
+      >
+        <ColorSwatch
+          label="Primary colour"
+          value={background.colorPrimary}
+          onChange={(colorPrimary) =>
+            update((current) => ({
+              ...current,
+              background: { ...current.background, colorPrimary },
+            }))
+          }
+        />
+      </SettingRow>
 
       {background.mode === "gradient" ? (
         <SettingRow

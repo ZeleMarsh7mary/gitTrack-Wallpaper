@@ -17,6 +17,12 @@ function safeHex(hex: string, fallback: string): string {
   return /^#[0-9a-f]{6}$/i.test(hex.trim()) ? hex.trim() : fallback;
 }
 
+/** Keep a framing value inside its documented range, NaN included. */
+function clampNumber(value: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(value, min), max);
+}
+
 function parseHex(hex: string, fallback: string): [number, number, number] {
   const clean = safeHex(hex, fallback).slice(1);
   return [
@@ -65,12 +71,25 @@ function backgroundLayer(cfg: UiConfig): string {
   }
 
   if (cfg.background.mode === "image") {
+    // Same framing maths as crates/core/src/renderer/background.rs: zoom scales
+    // the picture, pan slides it across the slack it leaves inside the canvas.
+    const zoom = clampNumber(cfg.background.zoom, 0.5, 4, 1);
+    const panX = clampNumber(cfg.background.panX, -1, 1, 0);
+    const panY = clampNumber(cfg.background.panY, -1, 1, 0);
+    const drawW = W * zoom;
+    const drawH = H * zoom;
+    const originX = W / 2 + (panX * Math.max(drawW, W)) / 2 - drawW / 2;
+    const originY = H / 2 + (panY * Math.max(drawH, H)) / 2 - drawH / 2;
     return `
       <rect width="${W}" height="${H}" fill="${primary}"/>
-      <g filter="url(#soften)">
-        <ellipse cx="240" cy="140" rx="300" ry="200" fill="${rgba(secondary, 0.85, "#12261c")}"/>
-        <ellipse cx="760" cy="430" rx="330" ry="240" fill="${rgba(glow, 0.35, "#20303f")}"/>
-        <ellipse cx="520" cy="250" rx="260" ry="150" fill="${rgba("#ffffff", 0.05, "#ffffff")}"/>
+      <g clip-path="url(#canvas-clip)">
+        <g transform="translate(${originX.toFixed(2)} ${originY.toFixed(2)}) scale(${zoom.toFixed(3)})">
+          <g filter="url(#soften)">
+            <ellipse cx="240" cy="140" rx="300" ry="200" fill="${rgba(secondary, 0.85, "#12261c")}"/>
+            <ellipse cx="760" cy="430" rx="330" ry="240" fill="${rgba(glow, 0.35, "#20303f")}"/>
+            <ellipse cx="520" cy="250" rx="260" ry="150" fill="${rgba("#ffffff", 0.05, "#ffffff")}"/>
+          </g>
+        </g>
       </g>
       <rect width="${W}" height="${H}" fill="url(#vignette)"/>`;
   }
@@ -167,6 +186,9 @@ export function demoPreview(cfg: UiConfig): string {
   const secondary = safeHex(cfg.background.colorSecondary, "#12261c");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W * 2}" height="${H * 2}" viewBox="0 0 ${W} ${H}" role="img">
     <defs>
+      <clipPath id="canvas-clip">
+        <rect width="${W}" height="${H}"/>
+      </clipPath>
       <linearGradient id="bg-gradient" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stop-color="${primary}"/>
         <stop offset="1" stop-color="${secondary}"/>

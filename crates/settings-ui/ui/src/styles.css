@@ -376,6 +376,116 @@ input,
   font-variant-numeric: tabular-nums;
 }
 
+.preview-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Drag-to-pan: the frame owns the pointer so the drag cannot select text or
+   scroll the page, and the image must not swallow the events. */
+.preview-frame.is-interactive {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.preview-frame.is-interactive:active {
+  cursor: grabbing;
+}
+
+.preview-frame.is-interactive img {
+  pointer-events: none;
+}
+
+.grid-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Hairline plus a dark halo, so the guide stays visible on a white wallpaper. */
+.grid-line {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.32);
+}
+
+.grid-line.is-vertical {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-0.5px);
+}
+
+.grid-line.is-horizontal {
+  left: 0;
+  right: 0;
+  height: 1px;
+  transform: translateY(-0.5px);
+}
+
+.grid-dot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.preview-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.preview-tools-label {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.preview-tools-group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
+  background: var(--field);
+}
+
+.preview-tool {
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11px;
+  line-height: 14px;
+  cursor: pointer;
+  transition: background 120ms linear, color 120ms linear;
+}
+
+.preview-tool:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.preview-tool.is-active {
+  color: var(--text);
+  background: var(--control);
+}
+
+.preview-tool:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ---------------------------------------------------------------- sections + rows */
 
 .section {

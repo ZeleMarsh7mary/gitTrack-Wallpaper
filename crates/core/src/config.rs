@@ -117,7 +117,17 @@ pub struct Background {
     pub fit: BgFit,
     pub color_primary: String,
     pub color_secondary: String,
+    /// Framing multiplier applied after `fit`; 1.0 draws the fitted image as-is.
+    pub zoom: f32,
+    /// Horizontal framing offset, -1.0..=1.0 of the pannable slack.
+    pub pan_x: f32,
+    /// Vertical framing offset, -1.0..=1.0 of the pannable slack.
+    pub pan_y: f32,
 }
+
+/// Framing limits shared by the sanitiser, the renderer and the settings UI.
+pub const ZOOM_MIN: f32 = 0.5;
+pub const ZOOM_MAX: f32 = 4.0;
 
 impl Default for Background {
     fn default() -> Self {
@@ -127,6 +137,9 @@ impl Default for Background {
             fit: BgFit::Cover,
             color_primary: "#0b1220".into(),
             color_secondary: "#12261c".into(),
+            zoom: 1.0,
+            pan_x: 0.0,
+            pan_y: 0.0,
         }
     }
 }
@@ -204,6 +217,24 @@ impl Config {
     /// Clamp every user-editable number into its documented range.
     pub fn sanitize(&mut self) {
         self.source.refresh_interval_minutes = self.source.refresh_interval_minutes.clamp(5, 1440);
+        // Non-finite input can only come from a hand-edited file; treat it as unset
+        // instead of letting NaN poison the framing maths.
+        let bg = &mut self.background;
+        bg.zoom = if bg.zoom.is_finite() {
+            bg.zoom.clamp(ZOOM_MIN, ZOOM_MAX)
+        } else {
+            1.0
+        };
+        bg.pan_x = if bg.pan_x.is_finite() {
+            bg.pan_x.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        bg.pan_y = if bg.pan_y.is_finite() {
+            bg.pan_y.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
         self.card.opacity = self.card.opacity.clamp(0.0, 1.0);
         self.card.blur_radius = self.card.blur_radius.clamp(0.0, 50.0);
         self.card.corner_radius = self.card.corner_radius.clamp(0.0, 80.0);
@@ -349,4 +380,44 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     ));
     fs::write(&tmp, bytes).map_err(|e| format!("write {}: {e}", tmp.display()))?;
     fs::rename(&tmp, path).map_err(|e| format!("rename {}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_without_framing_keys_still_loads() {
+        // Exactly what 0.1.0 wrote before image framing existed.
+        let legacy = r##"
+[background]
+mode = "image"
+image_path = "C:\\pictures\\wall.png"
+fit = "cover"
+color_primary = "#0b1220"
+color_secondary = "#12261c"
+"##;
+        let cfg: Config = toml::from_str(legacy).expect("legacy config.toml must still parse");
+        assert_eq!(cfg.background.zoom, 1.0);
+        assert_eq!(cfg.background.pan_x, 0.0);
+        assert_eq!(cfg.background.pan_y, 0.0);
+        assert_eq!(cfg.background.mode, BgMode::Image);
+    }
+
+    #[test]
+    fn framing_values_are_clamped() {
+        let mut cfg = Config {
+            background: Background {
+                zoom: 99.0,
+                pan_x: -7.0,
+                pan_y: f32::NAN,
+                ..Background::default()
+            },
+            ..Config::default()
+        };
+        cfg.sanitize();
+        assert_eq!(cfg.background.zoom, ZOOM_MAX);
+        assert_eq!(cfg.background.pan_x, -1.0);
+        assert_eq!(cfg.background.pan_y, 0.0, "NaN must fall back to centred");
+    }
 }

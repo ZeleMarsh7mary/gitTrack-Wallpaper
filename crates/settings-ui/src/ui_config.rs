@@ -182,6 +182,10 @@ pub struct UiBackground {
     pub fit: BgFit,
     pub color_primary: String,
     pub color_secondary: String,
+    /// Image framing, mirrored from `core::Background`.
+    pub zoom: f32,
+    pub pan_x: f32,
+    pub pan_y: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,6 +238,9 @@ impl UiConfig {
                 fit: cfg.background.fit.into(),
                 color_primary: cfg.background.color_primary.clone(),
                 color_secondary: cfg.background.color_secondary.clone(),
+                zoom: cfg.background.zoom,
+                pan_x: cfg.background.pan_x,
+                pan_y: cfg.background.pan_y,
             },
             card: UiCard {
                 position: cfg.card.position.into(),
@@ -273,6 +280,9 @@ impl UiConfig {
                 fit: self.background.fit.into(),
                 color_primary: self.background.color_primary.clone(),
                 color_secondary: self.background.color_secondary.clone(),
+                zoom: self.background.zoom,
+                pan_x: self.background.pan_x,
+                pan_y: self.background.pan_y,
             },
             card: core::Card {
                 position: self.card.position.into(),

@@ -42,6 +42,9 @@ export const DEFAULT_CONFIG: UiConfig = {
     fit: "cover",
     colorPrimary: "#0b1220",
     colorSecondary: "#12261c",
+    zoom: 1,
+    panX: 0,
+    panY: 0,
   },
   card: {
     position: "center",

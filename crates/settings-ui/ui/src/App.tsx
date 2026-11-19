@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NavRail } from "./components/NavRail";
 import { Preview } from "./components/Preview";
+import type { Framing, GridMode } from "./components/Preview";
 import { Toast } from "./components/Toast";
 import { Button } from "./components/controls";
 import { Icon } from "./components/Icons";
@@ -57,10 +58,13 @@ export default function App() {
   const [toast, setToast] = useState<ToastData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [grid, setGrid] = useState<GridMode>("off");
+  const [interacting, setInteracting] = useState(false);
 
   const configRef = useRef<UiConfig | null>(null);
   const renderSeq = useRef(0);
   const firstConfig = useRef(true);
+  const lastRendered = useRef<UiConfig | null>(null);
   const toastSeq = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -72,6 +76,7 @@ export default function App() {
 
   const renderPreview = useCallback(
     async (next: UiConfig) => {
+      lastRendered.current = next;
       renderSeq.current += 1;
       const seq = renderSeq.current;
       setRendering(true);
@@ -131,11 +136,23 @@ export default function App() {
       firstConfig.current = false;
       return;
     }
+    // While the preview is being dragged or zoomed the 45 ms flusher below owns
+    // the renders; a 150 ms debounce would feel frozen under the cursor.
+    if (interacting) return;
     const timer = window.setTimeout(() => {
       void renderPreview(config);
     }, 150);
     return () => window.clearTimeout(timer);
-  }, [config, renderPreview]);
+  }, [config, renderPreview, interacting]);
+
+  useEffect(() => {
+    if (!interacting) return;
+    const id = window.setInterval(() => {
+      const next = configRef.current;
+      if (next && next !== lastRendered.current) void renderPreview(next);
+    }, 45);
+    return () => window.clearInterval(id);
+  }, [interacting, renderPreview]);
 
   useEffect(() => {
     if (!toast) return;
@@ -238,6 +255,28 @@ export default function App() {
     ) : (
       <TrackPage config={config} update={update} />
     );
+  // Framing controls exist only where they mean something: the Background page
+  // with an image behind the card.
+  let framing: Framing | null = null;
+  if (config && page === "background" && config.background.mode === "image") {
+    framing = {
+      grid,
+      zoom: config.background.zoom,
+      panX: config.background.panX,
+      panY: config.background.panY,
+      onGridChange: setGrid,
+      onPan: (panX, panY) =>
+        update((current) => ({ ...current, background: { ...current.background, panX, panY } })),
+      onZoom: (zoom) =>
+        update((current) => ({ ...current, background: { ...current.background, zoom } })),
+      onReset: () =>
+        update((current) => ({
+          ...current,
+          background: { ...current.background, zoom: 1, panX: 0, panY: 0 },
+        })),
+      onInteract: setInteracting,
+    };
+  }
 
   return (
     <div className="app">
@@ -282,6 +321,7 @@ export default function App() {
                   updating={rendering}
                   error={previewError}
                   resolution={status.resolution}
+                  framing={framing}
                 />
 
                 {pageBody}

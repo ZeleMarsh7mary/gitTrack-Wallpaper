@@ -23,6 +23,12 @@ export interface UiConfig {
     fit: BgFit;
     colorPrimary: string;
     colorSecondary: string;
+    /** Image framing: zoom around the centre, 0.5 - 4.0. */
+    zoom: number;
+    /** Horizontal offset of the framing, -1 (left) to 1 (right). */
+    panX: number;
+    /** Vertical offset of the framing, -1 (up) to 1 (down). */
+    panY: number;
   };
   card: {
     position: Position;
